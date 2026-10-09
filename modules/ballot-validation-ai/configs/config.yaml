@@ -1,0 +1,42 @@
+# Cấu hình chung của pipeline. Đường dẫn tương đối với thư mục module (ballot-validation-ai/).
+labels: [valid, blank, erased, wrong_mark, multi_mark]
+
+data:
+  raw_dir: data/raw
+  labels_csv: data/labels/all.csv
+  boxes_json: data/labels/boxes.json
+  processed_npz: data/processed/dataset.npz
+  val_fraction: 0.125        # lấy 12.5% của tập train làm validation (=10% tổng, tập test giữ nguyên 20%)
+
+preprocess:
+  img_size: 224              # kích thước đầu vào CNN
+  clahe_clip: 2.0
+
+features:                    # trích 8 đặc trưng cấu trúc (xem src/feature_c45.py)
+  inner_margin: 5            # thu nhỏ ô vào trong bao nhiêu px để bỏ viền ô
+  box_ink_threshold: 0.15    # ô được coi là "có dấu" nếu mật độ mực > 15%
+
+c45:
+  max_depth: 6
+  min_leaf: 5                # số mẫu tối thiểu mỗi nhánh
+  cf: 0.25                   # độ tin cậy cho pessimistic pruning (chuẩn C4.5)
+
+cnn:                         # CNN toàn ảnh 224×224 — đối chứng (xem báo cáo)
+  epochs: 15
+  batch_size: 32
+  lr: 0.001
+  augment: true              # xoay ±3°, dịch ±8 px, đổi sáng — chỉ áp dụng khi train
+  save_path: models/cnn_best.pt
+
+mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CNN của mô hình lai)
+  epochs: 25
+  batch_size: 64
+  lr: 0.001
+  augment: true
+  folds: 5                   # out-of-fold cho tập train
+
+hashchain:
+  difficulty: 3
+
+results_dir: results
+models_dir: models

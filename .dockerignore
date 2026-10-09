@@ -1,0 +1,6 @@
+**/venv
+**/__pycache__
+.git
+modules/ballot-validation-ai/data
+modules/ballot-validation-ai/models
+modules/ballot-validation-ai/results

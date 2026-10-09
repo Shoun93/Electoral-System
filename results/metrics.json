@@ -1,0 +1,261 @@
+{
+ "baseline_majority": {
+  "accuracy": 0.2,
+  "macro_f1": 0.0667,
+  "invalid_recall": 0.0,
+  "invalid_precision": 0.0,
+  "confusion_matrix": [
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ]
+  ]
+ },
+ "baseline_naive_bayes": {
+  "accuracy": 0.8167,
+  "macro_f1": 0.7675,
+  "invalid_recall": 0.9167,
+  "invalid_precision": 0.9888,
+  "confusion_matrix": [
+   [
+    23,
+    0,
+    0,
+    0,
+    1
+   ],
+   [
+    0,
+    24,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    24,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    24,
+    0
+   ],
+   [
+    8,
+    0,
+    13,
+    0,
+    3
+   ]
+  ]
+ },
+ "baseline_knn": {
+  "accuracy": 0.9833,
+  "macro_f1": 0.9833,
+  "invalid_recall": 1.0,
+  "invalid_precision": 0.9897,
+  "confusion_matrix": [
+   [
+    23,
+    0,
+    0,
+    0,
+    1
+   ],
+   [
+    0,
+    24,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    24,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    24,
+    0
+   ],
+   [
+    0,
+    0,
+    1,
+    0,
+    23
+   ]
+  ]
+ },
+ "c45_manual": {
+  "accuracy": 0.9917,
+  "macro_f1": 0.9917,
+  "invalid_recall": 1.0,
+  "invalid_precision": 1.0,
+  "confusion_matrix": [
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    24,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    24,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    24,
+    0
+   ],
+   [
+    0,
+    0,
+    1,
+    0,
+    23
+   ]
+  ]
+ },
+ "cnn_full_image": {
+  "accuracy": 0.7083,
+  "macro_f1": 0.6781,
+  "invalid_recall": 0.9792,
+  "invalid_precision": 0.8174,
+  "confusion_matrix": [
+   [
+    3,
+    0,
+    0,
+    16,
+    5
+   ],
+   [
+    0,
+    17,
+    0,
+    7,
+    0
+   ],
+   [
+    0,
+    0,
+    24,
+    0,
+    0
+   ],
+   [
+    0,
+    4,
+    0,
+    20,
+    0
+   ],
+   [
+    2,
+    0,
+    0,
+    1,
+    21
+   ]
+  ]
+ },
+ "mark_cnn_box_accuracy": 1.0,
+ "hybrid_cnn_c45": {
+  "accuracy": 0.9917,
+  "macro_f1": 0.9917,
+  "invalid_recall": 1.0,
+  "invalid_precision": 1.0,
+  "confusion_matrix": [
+   [
+    24,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    24,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    24,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    24,
+    0
+   ],
+   [
+    0,
+    0,
+    1,
+    0,
+    23
+   ]
+  ]
+ }
+}
