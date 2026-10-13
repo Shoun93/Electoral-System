@@ -34,7 +34,7 @@ from sklearn.model_selection import train_test_split
 
 # ----------------------------- CẤU HÌNH -----------------------------
 RANDOM_SEED = 42
-N_PER_CLASS = 120                    # 5 nhãn × 120 = 600 ảnh
+N_PER_CLASS = 400                    # 5 nhãn × 400 = 2000 ảnh
 CLASSES = ["valid", "blank", "erased", "wrong_mark", "multi_mark"]
 MAX_VOTES = 3                        # chọn tối đa 3 trong 5 đại biểu
 MIN_VOTES_VALID = 1                  # phiếu hợp lệ: chọn từ 1 đến MAX_VOTES
