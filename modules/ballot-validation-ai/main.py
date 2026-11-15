@@ -28,7 +28,7 @@ from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
 from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_probs, predict_marks
 from evaluate import summarize
-from decision import confidences, is_pending, oof_c45_proba, screening_report, select_tau
+from decision import confidences, grid_search, is_pending, screening_report
 from hashchain import HashChain, sha256_file
 import merkle
 from monitor import check_drift, log_run
@@ -89,23 +89,25 @@ def main():
     H_tr = hybrid_features(F[tr], p_marks_tr)
     H_va = hybrid_features(F[va], p_marks_va)
     H_te = hybrid_features(F[te], p_marks_te)
-    hybrid = train_c45(H_tr, y[tr], H_va, y[va], feature_names=HYBRID_NAMES, tag="hybrid_c45")
+    # 5b. Chọn cấu hình C4.5 + τ + leaf_min_n bằng OOF của Train (không dùng Test)
+    best = grid_search(H_tr, y[tr], G[tr], p_marks_tr)
+    print(f"\n[chọn] min_leaf={best['min_leaf']} cf={best['cf']} leaf_min_n={best['leaf_min_n']} "
+          f"τ_CNN={best['tau_cnn']} τ_C4.5={best['tau_c45']} | đạt NFR-10 trên OOF: {best['target_met_oof']} "
+          f"| OOF: {best['oof']}")
+    hybrid = train_c45(H_tr, y[tr], H_va, y[va], feature_names=HYBRID_NAMES, tag="hybrid_c45",
+                       hp={"min_leaf": best["min_leaf"], "cf": best["cf"]})
     pred_h = hybrid.predict(H_te)
     p_h = hybrid.predict_proba(H_te)
     metrics["hybrid_cnn_c45"] = summarize("MÔ HÌNH LAI (CNN ô + C4.5)", y[te], pred_h)
 
-    # 5b. Chuyển PENDING_REVIEW (NFR-09, NFR-10): τ chọn trên OOF của Train, áp lên Test một lần
-    proba_tr = oof_c45_proba(H_tr, y[tr], G[tr])
-    cc_tr, cd_tr = confidences(p_marks_tr, proba_tr)
-    tau = select_tau(y[tr], proba_tr.argmax(1), cc_tr, cd_tr)
-    print(f"\nτ_CNN={tau['tau_cnn']} τ_C4.5={tau['tau_c45']} | đạt NFR-10 trên OOF Train: {tau['target_met_oof']} "
-          f"| OOF: {tau['oof']}")
+    # 5c. Chuyển PENDING_REVIEW trên Test: áp đúng τ và leaf_min_n đã chọn ở OOF
     cc_te, cd_te = confidences(p_marks_te, p_h)
-    pend_te = is_pending(cc_te, cd_te, tau["tau_cnn"], tau["tau_c45"])
+    pend_te = is_pending(cc_te, cd_te, best["tau_cnn"], best["tau_c45"],
+                         leaf_n=hybrid.leaf_size(H_te), leaf_min_n=best["leaf_min_n"])
     sel = screening_report(y[te], pred_h, pend_te)
-    sel.update(tau_cnn=tau["tau_cnn"], tau_c45=tau["tau_c45"], target_met_oof=tau["target_met_oof"])
+    sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
+               min_leaf=best["min_leaf"], cf=best["cf"], target_met_oof=best["target_met_oof"])
     metrics["hybrid_selective"] = sel
-    print(f"[selective] Test: {sel}")
 
     # 6. Ghi kết quả chi tiết từng phiếu
     with open(os.path.join(results_dir, "predictions.csv"), "w", newline="", encoding="utf-8") as f:

@@ -121,3 +121,20 @@ class TestDecision(unittest.TestCase):
         t = select_tau(y, pred, conf_cnn, conf_c45, target=0.98, step=0.01)
         self.assertTrue(t["target_met_oof"])
         self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.98)
+
+
+class TestLeafRule(unittest.TestCase):
+    def test_small_leaf_forces_pending(self):
+        from decision import is_pending
+        p = is_pending(np.array([0.99, 0.99]), np.array([0.99, 0.99]), 0.5, 0.5,
+                       leaf_n=np.array([5, 60]), leaf_min_n=10)
+        self.assertEqual(p.tolist(), [True, False])
+
+    def test_leaf_size_counts_training_samples(self):
+        rng = np.random.default_rng(2)
+        X = rng.uniform(0, 10, size=(200, 1))
+        y = (X[:, 0] > 5).astype(int)
+        clf = C45Classifier(max_depth=2, min_leaf=5, cf=0.25).fit(X, y, ["a"], ["no", "yes"])
+        n = clf.leaf_size(X)
+        self.assertTrue((n >= 5).all())
+        self.assertLessEqual(n.max(), 200)

@@ -13,8 +13,8 @@ from config import CFG, abspath
 from feature_c45 import FEATURE_NAMES
 
 
-def train_c45(F_tr, y_tr, F_va, y_va, feature_names=None, save=True, tag="c45_model"):
-    hp = CFG["c45"]
+def train_c45(F_tr, y_tr, F_va, y_va, feature_names=None, save=True, tag="c45_model", hp=None):
+    hp = dict(CFG["c45"], **(hp or {}))
     clf = C45Classifier(max_depth=hp["max_depth"], min_leaf=hp["min_leaf"], cf=hp["cf"])
     clf.fit(F_tr, y_tr, feature_names=feature_names or FEATURE_NAMES, class_names=CFG["labels"])
 
