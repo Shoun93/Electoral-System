@@ -28,6 +28,7 @@ from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
 from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_probs, predict_marks
 from evaluate import summarize
+from decision import confidences, is_pending, oof_c45_proba, screening_report, select_tau
 from hashchain import HashChain, sha256_file
 import merkle
 from monitor import check_drift, log_run
@@ -55,7 +56,7 @@ def main():
     data = load_dataset()
     idx = split_train_val(data)
     tr, va, te = idx["train"], idx["val"], idx["test"]
-    X, F, C, M, y, files = data["X"], data["F"], data["C"], data["M"], data["y"], data["files"]
+    X, F, C, M, y, files, G = data["X"], data["F"], data["C"], data["M"], data["y"], data["files"], data["groups"]
     print(f"Phiếu: train={len(tr)} val={len(va)} test={len(te)}")
 
     metrics = {}
@@ -77,7 +78,7 @@ def main():
 
     # 5. Mô hình lai
     print("\n----- CNN phát hiện dấu theo ô (out-of-fold) + C4.5 -----")
-    p_marks_tr = oof_mark_probs(C[tr], M[tr])                      # out-of-fold cho train
+    p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
     mark_model = train_mark_cnn(C[tr], M[tr])
     p_marks_va = predict_marks(mark_model, C[va])
     p_marks_te = predict_marks(mark_model, C[te])
@@ -93,12 +94,26 @@ def main():
     p_h = hybrid.predict_proba(H_te)
     metrics["hybrid_cnn_c45"] = summarize("MÔ HÌNH LAI (CNN ô + C4.5)", y[te], pred_h)
 
+    # 5b. Chuyển PENDING_REVIEW (NFR-09, NFR-10): τ chọn trên OOF của Train, áp lên Test một lần
+    proba_tr = oof_c45_proba(H_tr, y[tr], G[tr])
+    cc_tr, cd_tr = confidences(p_marks_tr, proba_tr)
+    tau = select_tau(y[tr], proba_tr.argmax(1), cc_tr, cd_tr)
+    print(f"\nτ_CNN={tau['tau_cnn']} τ_C4.5={tau['tau_c45']} | đạt NFR-10 trên OOF Train: {tau['target_met_oof']} "
+          f"| OOF: {tau['oof']}")
+    cc_te, cd_te = confidences(p_marks_te, p_h)
+    pend_te = is_pending(cc_te, cd_te, tau["tau_cnn"], tau["tau_c45"])
+    sel = screening_report(y[te], pred_h, pend_te)
+    sel.update(tau_cnn=tau["tau_cnn"], tau_c45=tau["tau_c45"], target_met_oof=tau["target_met_oof"])
+    metrics["hybrid_selective"] = sel
+    print(f"[selective] Test: {sel}")
+
     # 6. Ghi kết quả chi tiết từng phiếu
     with open(os.path.join(results_dir, "predictions.csv"), "w", newline="", encoding="utf-8") as f:
         wr = csv.writer(f)
-        wr.writerow(["file", "true", "pred", "confidence"])
+        wr.writerow(["file", "true", "pred", "confidence", "status"])
         for k, i in enumerate(te):
-            wr.writerow([files[i], labels[y[i]], labels[pred_h[k]], round(float(p_h[k].max()), 4)])
+            status = "PENDING_REVIEW" if pend_te[k] else "AUTO_CLASSIFIED"
+            wr.writerow([files[i], labels[y[i]], labels[pred_h[k]], round(float(p_h[k].max()), 4), status])
 
     # 7. Blockchain: neo mã băm mô hình + manifest, rồi ghi từng phiếu
     model_dir = abspath(CFG["models_dir"])
@@ -107,11 +122,12 @@ def main():
                       "hybrid_c45_sha256": sha256_file(os.path.join(model_dir, "hybrid_c45.joblib")),
                       "manifest_sha256": sha256_file(abspath(CFG["data"]["labels_csv"]))})
     raw_dir = abspath(CFG["data"]["raw_dir"])
+    pred_label = [("PENDING_REVIEW" if pend_te[k] else labels[pred_h[k]]) for k in range(len(te))]
     for k, i in enumerate(te):
-        chain.add_ballot(ballot_id=files[i], pred=labels[pred_h[k]], conf=p_h[k].max(),
+        chain.add_ballot(ballot_id=files[i], pred=pred_label[k], conf=p_h[k].max(),
                          image_sha256=sha256_file(os.path.join(raw_dir, files[i])))
     # Lô phiếu cho sổ cái Fabric: gốc Merkle để chaincode CommitBatch / VerifyBatch
-    leaves = [merkle.leaf_hash(files[i], labels[pred_h[k]], p_h[k].max(),
+    leaves = [merkle.leaf_hash(files[i], pred_label[k], p_h[k].max(),
                                sha256_file(os.path.join(raw_dir, files[i])))
               for k, i in enumerate(te)]
     batch = {"batch_id": "test-" + str(len(te)), "root": merkle.root(leaves), "count": len(leaves), "leaves": leaves}
@@ -132,7 +148,9 @@ def main():
     log_path = os.path.join(results_dir, "metrics_log.json")
     log_run({"c45_manual_acc": metrics["c45_manual"]["accuracy"],
              "cnn_full_acc": metrics["cnn_full_image"]["accuracy"],
-             "hybrid_acc": metrics["hybrid_cnn_c45"]["accuracy"]}, log_path)
+             "hybrid_acc": metrics["hybrid_cnn_c45"]["accuracy"],
+             "hybrid_screening_recall": sel["invalid_screening_recall"],
+             "hybrid_coverage": sel["coverage"]}, log_path)
     check_drift(log_path, key="hybrid_acc")
 
     with open(os.path.join(results_dir, "metrics.json"), "w", encoding="utf-8") as f:

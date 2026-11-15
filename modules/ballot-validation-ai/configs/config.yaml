@@ -35,6 +35,11 @@ mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CN
   augment: true
   folds: 5                   # out-of-fold cho tập train
 
+decision:                    # NFR-09 / NFR-10 (BA v15)
+  nfr10_target: 0.98         # Invalid Screening Recall tối thiểu, tính trên OOF của Train
+  tau_step: 0.01             # bước lưới τ
+  cv_folds: 5                # StratifiedGroupKFold theo group_id
+
 hashchain:
   difficulty: 3
 

@@ -180,15 +180,20 @@ def train_mark_cnn(C_tr, M_tr, cfg=None):
     return model
 
 
-def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42):
+def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None):
     """
     Out-of-fold: mỗi phiếu train được dự đoán bởi mô hình KHÔNG thấy phiếu đó.
     Nhờ vậy C4.5 học trên xác suất CNN "thật" chứ không phải xác suất đã học thuộc.
+    groups/strat: chia theo group_id (cùng một phiếu gốc không nằm ở cả hai phía), phân tầng theo nhãn.
     """
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import KFold, StratifiedGroupKFold
     hp = dict(CFG["mark_cnn"], **(cfg or {}))
     probs = np.zeros(M_tr.shape, dtype=np.float32)
-    for tr_i, te_i in KFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr):
+    if groups is None:
+        splits = KFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr)
+    else:
+        splits = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr, strat, groups)
+    for tr_i, te_i in splits:
         m = _fit_mark_cnn(C_tr[tr_i].reshape(-1, *C_tr.shape[2:]), M_tr[tr_i].reshape(-1), hp, seed)
         probs[te_i] = predict_marks(m, C_tr[te_i])
     return probs
