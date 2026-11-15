@@ -74,7 +74,7 @@ def build_processed(force=False):
     with open(abspath(CFG["data"]["boxes_json"]), encoding="utf-8") as f:
         layout = json.load(f)
 
-    X, F, C, M, y, split, files = [], [], [], [], [], [], []
+    X, F, C, M, y, split, files, groups = [], [], [], [], [], [], [], []
     for r in rows:
         img = cv2.imread(os.path.join(abspath(CFG["data"]["raw_dir"]), r["file"]), cv2.IMREAD_GRAYSCALE)
         if img is None:
@@ -89,19 +89,23 @@ def build_processed(force=False):
         y.append(labels.index(r["label"]))
         split.append(r["split"])
         files.append(r["file"])
+        groups.append(r["group_id"])
     np.savez_compressed(out, X=np.stack(X), F=np.asarray(F, dtype=np.float32),
                         C=np.stack(C), M=np.asarray(M, dtype=np.int64),
                         y=np.asarray(y), split=np.asarray(split), files=np.asarray(files),
+                        groups=np.asarray(groups),
                         feature_names=np.asarray(FEATURE_NAMES))
     print(f"✅ Tiền xử lý {len(rows)} phiếu → {out}")
     return out
 
 
 def load_dataset():
-    """Trả về dict: X, F, y, split, files (đã tạo nếu chưa có)."""
+    """Trả về dict: X, F, C, M, y, split, files, groups (đã tạo nếu chưa có hoặc thiếu groups)."""
     path = build_processed()
+    if "groups" not in np.load(path, allow_pickle=False).files:   # file cũ, tạo lại
+        path = build_processed(force=True)
     d = np.load(path, allow_pickle=False)
-    return {k: d[k] for k in ["X", "F", "C", "M", "y", "split", "files"]}
+    return {k: d[k] for k in ["X", "F", "C", "M", "y", "split", "files", "groups"]}
 
 
 def split_train_val(data, seed=42):

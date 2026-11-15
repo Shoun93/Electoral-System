@@ -89,3 +89,35 @@ class TestMerkle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDecision(unittest.TestCase):
+    def test_screening_counts_pending_as_detected(self):
+        from decision import screening_report
+        y    = np.array([1, 2, 3, 0, 0])      # 3 không hợp lệ, 2 hợp lệ
+        pred = np.array([0, 2, 0, 0, 0])      # thứ 1: dự đoán VALID; thứ 3: dự đoán VALID
+        pend = np.array([False, False, True, False, False])
+        r = screening_report(y, pred, pend)
+        self.assertAlmostEqual(r["invalid_screening_recall"], 2 / 3, places=4)   # idx 1 (auto đúng) + idx 2 (chờ)
+        self.assertAlmostEqual(r["automatic_invalid_recall"], 1 / 3, places=4)
+        self.assertEqual(r["n_auto"], 4)
+        self.assertAlmostEqual(r["referral_rate"], 1 / 5, places=4)
+        self.assertAlmostEqual(r["selective_risk"], 1 / 4, places=4)            # idx 0 auto nhưng sai
+
+    def test_or_rule(self):
+        from decision import is_pending
+        p = is_pending(np.array([0.99, 0.6]), np.array([0.99, 0.99]), tau_cnn=0.9, tau_c45=0.9)
+        self.assertEqual(p.tolist(), [False, True])
+        p = is_pending(np.array([0.99]), np.array([0.5]), tau_cnn=0.9, tau_c45=0.9)
+        self.assertEqual(p.tolist(), [True])
+
+    def test_select_tau_meets_target_when_possible(self):
+        from decision import select_tau
+        rng = np.random.default_rng(0)
+        y = rng.integers(0, 5, 400)
+        pred = y.copy()
+        conf_c45 = np.where(pred == y, 0.95, 0.3)       # sai → độ tin cậy thấp
+        conf_cnn = np.full(400, 0.99)
+        t = select_tau(y, pred, conf_cnn, conf_c45, target=0.98, step=0.01)
+        self.assertTrue(t["target_met_oof"])
+        self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.98)
