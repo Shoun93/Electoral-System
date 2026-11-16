@@ -2,13 +2,13 @@
 
 Hệ thống kiểm phiếu bầu cử có trí tuệ nhân tạo, kết hợp sổ cái blockchain (Hyperledger Fabric) để lưu kết quả có thể kiểm chứng.
 
-> Trạng thái: **demo nghiên cứu**. Module kiểm phiếu bằng AI chạy được end-to-end trên dữ liệu giả lập. Mã blockchain đã viết nhưng chưa được triển khai đầy đủ trong repo này. PBFT chưa làm.
+> Trạng thái: **demo nghiên cứu, chưa đạt nghiệm thu**. Module AI chạy end-to-end trên dữ liệu giả lập. Phần chuyển `PENDING_REVIEW` (nhánh `feat/ba-giai-doan-1-selective`) **chưa đạt** ràng buộc Selective Risk ≤ 0.02. Mã blockchain đã viết nhưng chưa chạy trên Fabric. PBFT chưa làm. Kiểm toán và kế hoạch: [`docs/audit`](docs/audit).
 
 ## Các module
 
 | Module | Thư mục | Trạng thái | Mô tả |
 |---|---|---|---|
-| Kiểm phiếu bằng AI | [`modules/ballot-validation-ai`](modules/ballot-validation-ai) | ✅ Chạy end-to-end (dữ liệu giả lập) | Phân loại phiếu bằng mô hình lai CNN theo ô + C4.5 (có luật IF-THEN), ghi kết quả lên hash-chain |
+| Kiểm phiếu bằng AI | [`modules/ballot-validation-ai`](modules/ballot-validation-ai) | ✅ Chạy end-to-end; ⚠️ chuyển `PENDING_REVIEW` chưa đạt nghiệm thu (dữ liệu giả lập) | Phân loại phiếu bằng mô hình lai CNN theo ô + C4.5 (có luật IF-THEN), chuyển `PENDING_REVIEW` theo ngưỡng chọn trên OOF Train, ghi kết quả lên hash-chain |
 | Sổ cái blockchain | [`modules/blockchain-ledger`](modules/blockchain-ledger) | ⚠️ Chaincode đã merge vào `main`, chưa hoàn chỉnh cho CCaaS | Hyperledger Fabric 3.1.5, 3 tổ chức, endorsement 2-trong-3, private data, gốc Merkle theo lô |
 | Đồng thuận PBFT | — | ❌ Chưa làm | SmartBFT cần 4 orderer và cấu hình `bft-config/` |
 | Đăng ký/xác thực cử tri | — | 🔜 Kế hoạch | Xác thực danh tính cử tri trước khi bỏ phiếu |
@@ -91,7 +91,7 @@ python -m unittest discover -s tests -v     # kiểm thử đơn vị
 
 ### Dữ liệu
 
-`dataset/generate_dataset.py` sinh **2000 phiếu** (`N_PER_CLASS = 400`, 5 nhãn):
+`dataset/generate_dataset.py` sinh **2500 phiếu** (mặc định 500 mỗi nhãn, 5 nhãn):
 
 | Nhãn | Ý nghĩa |
 |---|---|
@@ -101,25 +101,26 @@ python -m unittest discover -s tests -v     # kiểm thử đơn vị
 | `wrong_mark` | dấu đặt ngoài ô, hoặc ghi thêm tên ngoài danh sách |
 | `multi_mark` | chọn 4–5 đại biểu (nhiều hơn quy định) |
 
-Chia 80/20 phân tầng theo nhãn. Validation lấy 12.5% từ tập train (tương đương 10% tổng). Mỗi ảnh có tọa độ 5 ô đã áp phép xoay nhiễu (`data/labels/boxes.json`) và danh sách ô có dấu (`o_co_danh_dau`) để kiểm chứng nhãn.
+Chia train 1750 / val 250 / test 500 theo `group_id` (một phiếu gốc không nằm ở hai tập). Mỗi ảnh có tọa độ 5 ô đã áp phép xoay nhiễu (`data/labels/boxes.json`) và danh sách ô có dấu (`o_co_danh_dau`) để kiểm chứng nhãn.
 
 ### Kết quả
 
-> ⚠️ Bảng dưới đây là kết quả của lần chạy trước với **600 phiếu** (120/lớp), seed 42. Sau khi tăng lên 2000 phiếu cần chạy lại `python main.py` và cập nhật bảng.
+> Lần chạy gần nhất: 2500 phiếu, seed 42, tập test 500. Tập test đã được dùng nhiều lần để khám phá cấu hình, nên các số dưới đây **không phải bằng chứng nghiệm thu**. Chi tiết: [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
 
 | Mô hình | Accuracy | Macro-F1 | Recall "không hợp lệ" | Precision "không hợp lệ" |
 |---|---|---|---|---|
 | Baseline majority | 0.200 | 0.067 | 0.000 | 0.000 |
-| Baseline Naive Bayes | 0.817 | 0.768 | 0.917 | 0.989 |
-| Baseline kNN (k=5) | 0.983 | 0.983 | 1.000 | 0.990 |
-| C4.5 (đặc trưng thủ công) | 0.992 | 0.992 | 1.000 | 1.000 |
-| **Mô hình lai (CNN theo ô + C4.5)** | **0.992** | **0.992** | **1.000** | **1.000** |
-| CNN toàn ảnh 224×224 (đối chứng) | 0.400 | 0.280 | 1.000 | 0.800 |
+| Baseline Naive Bayes | 0.802 | 0.781 | 0.910 | 0.995 |
+| Baseline kNN (k=5) | 0.916 | 0.914 | 0.948 | 0.977 |
+| C4.5 (đặc trưng thủ công) | 0.916 | 0.912 | 0.935 | 0.997 |
+| **Mô hình lai (CNN theo ô + C4.5)** | **0.896** | **0.889** | **0.943** | **1.000** |
+| CNN toàn ảnh 224×224 (đối chứng, không học) | 0.200 | 0.067 | 0.000 | 0.000 |
 
-- CNN phát hiện dấu theo ô đạt 100% accuracy trên tập test (600 ô của lần chạy đó).
-- CNN toàn ảnh không học được trong 15 epoch: nét dấu 3 px bị mờ khi thu về 224×224 và số mẫu nhỏ. Vì vậy nhánh CNN chuyển sang phát hiện dấu theo ô.
+- CNN phát hiện dấu theo ô đạt accuracy 1.0 trên tập test (cấp ô).
+- CNN toàn ảnh không học: val_acc cố định 0.20. Chưa điều tra nguyên nhân. Đối chứng này chưa có giá trị.
+- Ngưỡng chuyển `PENDING_REVIEW` (cấu hình chọn trên OOF Train): Invalid Screening Recall 1.000, Coverage 0.856, Referral Rate 0.144, **Selective Risk 0.068 (vượt ngưỡng 0.02)**. Không đạt nghiệm thu.
 
-**Đọc kết quả thận trọng:** trên dữ liệu giả lập, 8 đặc trưng thủ công gần như tách hoàn toàn các lớp, nên C4.5 đơn thuần đã đạt kết quả gần tối đa. Lợi ích của CNN chỉ kiểm chứng được trên ảnh scan thật (nhiễu, bóng, tẩy xóa, chữ ký không đều).
+**Đọc kết quả thận trọng:** trên dữ liệu giả lập, 8 đặc trưng thủ công gần như tách hoàn toàn các lớp, nên C4.5 đơn thuần đã đạt kết quả gần tối đa. Lợi ích của CNN chỉ kiểm chứng được trên ảnh scan thật (nhiễu, bóng, tẩy xóa, chữ ký không đều). Lớp `wrong_mark` là lớp khó nhất; 19 phiếu `wrong_mark` trên tập test rơi vào một lá C4.5 không tách được (xem audit).
 
 Luật C4.5 học được (một phần, từ lần chạy trước):
 
