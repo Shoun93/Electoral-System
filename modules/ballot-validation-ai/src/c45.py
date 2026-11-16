@@ -143,6 +143,10 @@ class C45Classifier:
     def predict(self, X):
         return self.predict_proba(X).argmax(1)
 
+    def leaf_size(self, X):
+        """Số mẫu train tại lá mà mỗi mẫu rơi vào."""
+        return np.array([self._route(x)["n"] for x in np.asarray(X, dtype=float)])
+
     # ---------------- giải thích ----------------
     def export_rules(self):
         """Danh sách luật IF-THEN: (điều kiện, lớp dự đoán, số mẫu, số lỗi huấn luyện)."""

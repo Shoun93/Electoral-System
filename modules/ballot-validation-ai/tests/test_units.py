@@ -118,6 +118,42 @@ class TestDecision(unittest.TestCase):
         pred = y.copy()
         conf_c45 = np.where(pred == y, 0.95, 0.3)       # sai → độ tin cậy thấp
         conf_cnn = np.full(400, 0.99)
-        t = select_tau(y, pred, conf_cnn, conf_c45, target=0.98, step=0.01)
-        self.assertTrue(t["target_met_oof"])
-        self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.98)
+        t = select_tau(y, pred, conf_cnn, conf_c45, step=0.01)
+        self.assertTrue(t["oof_target_met"])
+        self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.99)
+
+    def test_rank_order_recall_then_risk_then_coverage(self):
+        from decision import rank, feasible
+        a = {"invalid_screening_recall": 0.995, "selective_risk": 0.01, "coverage": 0.85}
+        b = {"invalid_screening_recall": 0.990, "selective_risk": 0.005, "coverage": 0.95}
+        c = {"invalid_screening_recall": 0.985, "selective_risk": 0.0, "coverage": 1.0}
+        bad = {"invalid_screening_recall": 0.999, "selective_risk": 0.0, "coverage": 0.5}   # coverage < 0.80
+        for r in (a, b, c):
+            self.assertTrue(feasible(r))
+        self.assertFalse(feasible(bad))
+        self.assertGreater(rank(a), rank(b))      # Recall cao hơn thắng trước
+        self.assertGreater(rank(b), rank(c))      # Recall cao hơn (0.990 > 0.985) thắng, dù risk cao hơn
+        self.assertGreater(rank(c), rank(bad))    # cấu hình đạt thắng cấu hình không đạt
+
+    def test_no_auto_gives_risk_one(self):
+        from decision import screening_report
+        r = screening_report(np.array([1, 2]), np.array([1, 2]), np.array([True, True]))
+        self.assertEqual(r["selective_risk"], 1.0)
+        self.assertEqual(r["coverage"], 0.0)
+
+
+class TestLeafRule(unittest.TestCase):
+    def test_small_leaf_forces_pending(self):
+        from decision import is_pending
+        p = is_pending(np.array([0.99, 0.99]), np.array([0.99, 0.99]), 0.5, 0.5,
+                       leaf_n=np.array([5, 60]), leaf_min_n=10)
+        self.assertEqual(p.tolist(), [True, False])
+
+    def test_leaf_size_counts_training_samples(self):
+        rng = np.random.default_rng(2)
+        X = rng.uniform(0, 10, size=(200, 1))
+        y = (X[:, 0] > 5).astype(int)
+        clf = C45Classifier(max_depth=2, min_leaf=5, cf=0.25).fit(X, y, ["a"], ["no", "yes"])
+        n = clf.leaf_size(X)
+        self.assertTrue((n >= 5).all())
+        self.assertLessEqual(n.max(), 200)
