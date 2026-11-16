@@ -18,8 +18,8 @@ Phạm vi: đọc code, chạy lại pipeline AI trên dữ liệu 2500 ảnh, p
 | Hash-chain + demo sửa | `src/hashchain.py` | Chạy được; phát hiện sửa đổi | `validate()` trả `False` sau sửa |
 | Merkle (Python) | `src/merkle.py` | Có test vector khớp Go | unit test |
 | PSI, drift | `src/monitor.py` | Có hàm; chưa có dữ liệu sản xuất | unit test |
-| Chaincode Go | `modules/blockchain-ledger/chaincode/ballot/main.go` | Có hàm; **chưa biên dịch/chạy trên Fabric** | không có test Go |
-| Merkle (Go) | `chaincode/ballot/merkle/` | Có code; chưa có go test | — |
+| Chaincode Go | `modules/blockchain-ledger/chaincode/ballot/main.go` | Có hàm; **không biên dịch được trên máy này** (thiếu module fabric-contract-api-go, không có mạng); chưa chạy trên Fabric | không có test Go |
+| Merkle (Go) | `chaincode/ballot/merkle/` | ✅ `go test ./merkle/`: 3/3 PASS | `baseline_results.md` mục 8 |
 | Triển khai Fabric | `modules/blockchain-ledger/network/deploy.sh` | **Chưa kiểm thử** (script ghi rõ) | — |
 | Dockerfile | `Dockerfile` (gốc) | **Chưa build** | — |
 | STRIDE | `docs/stride.md` | Chỉ phạm vi chaincode | — |
@@ -33,7 +33,7 @@ Unit test: 18/18 OK (`python3 -m unittest discover -s tests`).
 - Chaincode: không có khái niệm `PENDING_REVIEW` (không có hàm pending/review; FR-10 chưa làm).
 - Mã R01–R10, rule engine, `legal_label` (chờ sổ tay pháp lý — BLOCKED_BY_BUSINESS).
 - Document Validation (R01, R02): chưa có.
-- Go unit test cho chaincode.
+- Go unit test cho chaincode (chưa viết; chaincode chưa biên dịch được trên máy này).
 - Pipeline không ghi `PENDING_REVIEW` vào Fabric thật; chỉ vào hash-chain cục bộ và Merkle leaf.
 
 ## 3. Đang chạy được
@@ -45,7 +45,7 @@ Unit test: 18/18 OK (`python3 -m unittest discover -s tests`).
 ## 4. Chưa chạy được / chưa kiểm chứng
 
 - Fabric test-network: chưa.
-- Go build/test chaincode: chưa.
+- Go build chaincode: chưa (thiếu module, không có mạng). Go test merkle: đã chạy, PASS.
 - Docker build: chưa.
 - CI: không có.
 

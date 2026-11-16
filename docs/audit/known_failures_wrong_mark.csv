@@ -1,0 +1,20 @@
+file,true,pred,status,confidence,leaf_n,leaf_counts_valid_blank_erased_wm_multi,path
+ballot_00001.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_00076.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_00090.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_00196.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_00392.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_00398.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_00911.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01020.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01584.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01588.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01668.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01872.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01920.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_01943.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_02042.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_02071.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_02305.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_02378.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
+ballot_02418.png,wrong_mark,blank,AUTO_CLASSIFIED,0.8441,404,"[0, 341, 0, 63, 0]",cnn_count_marked <= 3.5 AND cnn_count_marked <= 0.5 AND max_box_density <= 0.06037 AND left_band_ink <= 0.0006498
