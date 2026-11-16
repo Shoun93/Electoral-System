@@ -37,7 +37,8 @@ mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CN
 
 decision:                    # NFR-09 / NFR-10 (BA v15)
   nfr10_target: 0.98         # sàn NFR-10 (không hạ)
-  oof_target: 0.99           # mục tiêu Recall trên OOF Train khi chọn cấu hình
+  selective_risk_max: 0.02   # giới hạn Selective Risk (đã phê duyệt)
+  coverage_min: 0.80         # đề xuất, CHƯA PHÊ DUYỆT — ghi rõ trong kết quả
   tau_step: 0.01             # bước lưới τ
   cv_folds: 5                # StratifiedGroupKFold theo group_id
   grid_min_leaf: [5, 10, 20, 40]          # grid C4.5 (chọn bằng OOF Train)

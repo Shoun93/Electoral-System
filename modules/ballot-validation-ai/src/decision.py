@@ -7,7 +7,8 @@ Giai đoạn 1 — CHƯA có: BR-07 (mã R03–R10 từ ảnh), mục 3.4 (legal
   - leaf_n   = số mẫu train tại lá C4.5 (lá ít mẫu → không tin được confidence)
   - PENDING_REVIEW nếu conf_cnn < τ_cnn HOẶC conf_c45 < τ_c45 HOẶC leaf_n < leaf_min_n
   - τ, min_leaf, cf, leaf_min_n đều chọn trên OOF của tập Train (StratifiedGroupKFold theo group_id). Không dùng Test.
-  - Thứ tự ưu tiên: Recall (≥ 0.99 mục tiêu, sàn NFR-10 0.98) → Selective Risk thấp → Coverage cao.
+  - Ràng buộc: Recall ≥ 0.98, Coverage ≥ 0.80 (đề xuất, chưa phê duyệt), Selective Risk ≤ 0.02.
+  Chọn cấu hình đạt theo Recall → Selective Risk → Coverage. Không đạt: ghi nhận, không hạ ngưỡng.
 """
 import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold
@@ -51,18 +52,25 @@ def screening_report(y, pred, pending):
     }
 
 
+def feasible(r):
+    """Đạt nghiệm thu: Recall ≥ 0.98 (NFR-10), Coverage ≥ coverage_min, Selective Risk ≤ selective_risk_max."""
+    d = CFG["decision"]
+    return (r["invalid_screening_recall"] >= d["nfr10_target"]
+            and r["coverage"] >= d["coverage_min"]
+            and r["selective_risk"] <= d["selective_risk_max"])
+
+
 def rank(r):
     """
-    Thứ tự ưu tiên (BA 16/11/2026): Recall → Selective Risk → Coverage.
-    Tầng 2: Invalid Screening Recall ≥ oof_target (0.99). Tầng 1: ≥ nfr10_target (0.98, sàn NFR-10). Tầng 0: dưới sàn.
-    Tầng 2/1: giảm Selective Risk, rồi tăng Coverage. Tầng 0: tăng Recall trước.
+    Cấu hình đạt: ưu tiên Recall → Selective Risk thấp → Coverage cao.
+    Cấu hình không đạt: ít vi phạm ràng buộc hơn được xếp trên. Không hạ ngưỡng để tăng Coverage.
     """
     d = CFG["decision"]
-    rec = r["invalid_screening_recall"]
-    tier = 2 if rec >= d["oof_target"] else (1 if rec >= d["nfr10_target"] else 0)
-    if tier > 0:
-        return (tier, -r["selective_risk"], r["coverage"], 0.0)
-    return (0, rec, -r["selective_risk"], r["coverage"])
+    if feasible(r):
+        return (2, r["invalid_screening_recall"], -r["selective_risk"], r["coverage"])
+    viol = (r["invalid_screening_recall"] < d["nfr10_target"]) + (r["coverage"] < d["coverage_min"]) \
+        + (r["selective_risk"] > d["selective_risk_max"])
+    return (0, -viol, r["invalid_screening_recall"], r["coverage"])
 
 
 def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None):
@@ -77,9 +85,9 @@ def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None
             if best is None or rank(r) > rank(best[2]):
                 best = (tc, td, r)
     tc, td, r = best
-    tier = rank(r)[0]
+    ok = feasible(r)
     return {"tau_cnn": float(tc), "tau_c45": float(td), "leaf_min_n": leaf_min_n,
-            "tier": tier, "target_met_oof": tier >= 1, "oof_target_met": tier == 2, "oof": r}
+            "tier": 2 if ok else 0, "target_met_oof": ok, "oof_target_met": ok, "oof": r}
 
 
 def oof_c45(H, y, groups, hp, k=None, seed=42):

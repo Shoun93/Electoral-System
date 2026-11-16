@@ -28,7 +28,7 @@ from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
 from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_probs, predict_marks
 from evaluate import summarize
-from decision import confidences, grid_search, is_pending, screening_report
+from decision import confidences, feasible, grid_search, is_pending, screening_report
 from hashchain import HashChain, sha256_file
 import merkle
 from monitor import check_drift, log_run
@@ -108,7 +108,12 @@ def main():
     sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
                min_leaf=best["min_leaf"], cf=best["cf"], tier=best["tier"],
                target_met_oof=best["target_met_oof"], oof_target_met=best["oof_target_met"])
+    sel["accepted_test"] = feasible(sel)
+    sel["coverage_min_status"] = "đề xuất, chưa phê duyệt"
     metrics["hybrid_selective"] = sel
+    print(f"[nghiệm thu Test] {'ĐẠT' if sel['accepted_test'] else 'KHÔNG ĐẠT'} "
+          f"(Recall≥{CFG['decision']['nfr10_target']}, Coverage≥{CFG['decision']['coverage_min']} [chưa phê duyệt], "
+          f"Selective Risk≤{CFG['decision']['selective_risk_max']}) | {sel}")
 
     # 6. Ghi kết quả chi tiết từng phiếu
     with open(os.path.join(results_dir, "predictions.csv"), "w", newline="", encoding="utf-8") as f:
