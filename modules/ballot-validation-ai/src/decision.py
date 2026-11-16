@@ -7,6 +7,7 @@ Giai đoạn 1 — CHƯA có: BR-07 (mã R03–R10 từ ảnh), mục 3.4 (legal
   - leaf_n   = số mẫu train tại lá C4.5 (lá ít mẫu → không tin được confidence)
   - PENDING_REVIEW nếu conf_cnn < τ_cnn HOẶC conf_c45 < τ_c45 HOẶC leaf_n < leaf_min_n
   - τ, min_leaf, cf, leaf_min_n đều chọn trên OOF của tập Train (StratifiedGroupKFold theo group_id). Không dùng Test.
+  - Thứ tự ưu tiên: Recall (≥ 0.99 mục tiêu, sàn NFR-10 0.98) → Selective Risk thấp → Coverage cao.
 """
 import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold
@@ -45,33 +46,40 @@ def screening_report(y, pred, pending):
         "automatic_invalid_recall": round(float(auto_inv.sum()) / n_inv, 4),
         "coverage": round(float(auto.mean()), 4),
         "referral_rate": round(float(pending.mean()), 4),
-        "selective_risk": round(float(wrong_auto.sum()) / max(n_auto, 1), 4),
+        "selective_risk": round(float(wrong_auto.sum()) / n_auto, 4) if n_auto > 0 else 1.0,
         "n": int(len(y)), "n_auto": n_auto, "n_pending": int(pending.sum()),
     }
 
 
-def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, target=None, step=None):
+def rank(r):
     """
-    Lưới (τ_cnn, τ_c45) trên OOF của Train.
-    Ưu tiên: Invalid Screening Recall ≥ target, rồi Coverage cao nhất.
-    Không đạt target với mọi τ: chọn τ có Invalid Screening Recall cao nhất, rồi Coverage.
+    Thứ tự ưu tiên (BA 16/11/2026): Recall → Selective Risk → Coverage.
+    Tầng 2: Invalid Screening Recall ≥ oof_target (0.99). Tầng 1: ≥ nfr10_target (0.98, sàn NFR-10). Tầng 0: dưới sàn.
+    Tầng 2/1: giảm Selective Risk, rồi tăng Coverage. Tầng 0: tăng Recall trước.
     """
-    target = CFG["decision"]["nfr10_target"] if target is None else target
+    d = CFG["decision"]
+    rec = r["invalid_screening_recall"]
+    tier = 2 if rec >= d["oof_target"] else (1 if rec >= d["nfr10_target"] else 0)
+    if tier > 0:
+        return (tier, -r["selective_risk"], r["coverage"], 0.0)
+    return (0, rec, -r["selective_risk"], r["coverage"])
+
+
+def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None):
+    """Lưới (τ_cnn, τ_c45) trên OOF của Train, chọn theo rank()."""
     step = CFG["decision"]["tau_step"] if step is None else step
     grid_cnn = np.round(np.arange(0.5, 1.0 + 1e-9, step), 4)
     grid_c45 = np.round(np.arange(0.0, 1.0 + 1e-9, step), 4)
-    cands = []
+    best = None
     for tc in grid_cnn:
         for td in grid_c45:
             r = screening_report(y, pred, is_pending(conf_cnn, conf_c45, tc, td, leaf_n, leaf_min_n))
-            cands.append((tc, td, r))
-    feasible = [c for c in cands if c[2]["invalid_screening_recall"] >= target]
-    if feasible:
-        tc, td, r = max(feasible, key=lambda c: (c[2]["coverage"], -c[0], -c[1]))
-    else:
-        tc, td, r = max(cands, key=lambda c: (c[2]["invalid_screening_recall"], c[2]["coverage"]))
+            if best is None or rank(r) > rank(best[2]):
+                best = (tc, td, r)
+    tc, td, r = best
+    tier = rank(r)[0]
     return {"tau_cnn": float(tc), "tau_c45": float(td), "leaf_min_n": leaf_min_n,
-            "target_met_oof": bool(feasible), "oof": r}
+            "tier": tier, "target_met_oof": tier >= 1, "oof_target_met": tier == 2, "oof": r}
 
 
 def oof_c45(H, y, groups, hp, k=None, seed=42):
@@ -87,12 +95,6 @@ def oof_c45(H, y, groups, hp, k=None, seed=42):
     return proba, leaf_n
 
 
-def _key(t):
-    """Đạt NFR-10 thì ưu tiên Coverage; chưa đạt thì ưu tiên Invalid Screening Recall."""
-    o = t["oof"]
-    return (1, o["coverage"], 0) if t["target_met_oof"] else (0, o["invalid_screening_recall"], o["coverage"])
-
-
 def grid_search(H, y, groups, p_marks, grid=None):
     """Lưới min_leaf × cf × leaf_min_n (chọn trên OOF Train). Trả về cấu hình tốt nhất + τ."""
     grid = grid or CFG["decision"]
@@ -105,7 +107,7 @@ def grid_search(H, y, groups, p_marks, grid=None):
                 t = select_tau(y, proba.argmax(1), cc, cd, leaf_n=leaf_n, leaf_min_n=lmn)
                 t.update(min_leaf=min_leaf, cf=cf)
                 print(f"[grid] min_leaf={min_leaf} cf={cf} leaf_min_n={lmn} | "
-                      f"τ=({t['tau_cnn']},{t['tau_c45']}) met={t['target_met_oof']} oof={t['oof']}")
-                if best is None or _key(t) > _key(best):
+                      f"τ=({t['tau_cnn']},{t['tau_c45']}) tier={t['tier']} oof={t['oof']}")
+                if best is None or rank(t["oof"]) > rank(best["oof"]):
                     best = t
     return best

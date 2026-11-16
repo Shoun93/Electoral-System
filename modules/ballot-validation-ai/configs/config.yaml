@@ -36,7 +36,8 @@ mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CN
   folds: 5                   # out-of-fold cho tập train
 
 decision:                    # NFR-09 / NFR-10 (BA v15)
-  nfr10_target: 0.98         # Invalid Screening Recall tối thiểu, tính trên OOF của Train
+  nfr10_target: 0.98         # sàn NFR-10 (không hạ)
+  oof_target: 0.99           # mục tiêu Recall trên OOF Train khi chọn cấu hình
   tau_step: 0.01             # bước lưới τ
   cv_folds: 5                # StratifiedGroupKFold theo group_id
   grid_min_leaf: [5, 10, 20, 40]          # grid C4.5 (chọn bằng OOF Train)

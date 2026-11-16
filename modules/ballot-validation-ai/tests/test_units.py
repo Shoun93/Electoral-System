@@ -118,9 +118,25 @@ class TestDecision(unittest.TestCase):
         pred = y.copy()
         conf_c45 = np.where(pred == y, 0.95, 0.3)       # sai → độ tin cậy thấp
         conf_cnn = np.full(400, 0.99)
-        t = select_tau(y, pred, conf_cnn, conf_c45, target=0.98, step=0.01)
-        self.assertTrue(t["target_met_oof"])
-        self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.98)
+        t = select_tau(y, pred, conf_cnn, conf_c45, step=0.01)
+        self.assertTrue(t["oof_target_met"])
+        self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.99)
+
+    def test_rank_order_recall_then_risk_then_coverage(self):
+        from decision import rank
+        hi_recall_low_cov = {"invalid_screening_recall": 0.995, "selective_risk": 0.02, "coverage": 0.5}
+        hi_recall_high_cov = {"invalid_screening_recall": 0.993, "selective_risk": 0.01, "coverage": 0.9}
+        floor_only = {"invalid_screening_recall": 0.985, "selective_risk": 0.0, "coverage": 1.0}
+        below_floor = {"invalid_screening_recall": 0.97, "selective_risk": 0.0, "coverage": 1.0}
+        self.assertGreater(rank(hi_recall_high_cov), rank(hi_recall_low_cov))   # risk thấp hơn thắng
+        self.assertGreater(rank(hi_recall_low_cov), rank(floor_only))           # đạt 0.99 thắng 0.98
+        self.assertGreater(rank(floor_only), rank(below_floor))                 # trên sàn thắng dưới sàn
+
+    def test_no_auto_gives_risk_one(self):
+        from decision import screening_report
+        r = screening_report(np.array([1, 2]), np.array([1, 2]), np.array([True, True]))
+        self.assertEqual(r["selective_risk"], 1.0)
+        self.assertEqual(r["coverage"], 0.0)
 
 
 class TestLeafRule(unittest.TestCase):

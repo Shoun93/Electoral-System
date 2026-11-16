@@ -106,7 +106,8 @@ def main():
                          leaf_n=hybrid.leaf_size(H_te), leaf_min_n=best["leaf_min_n"])
     sel = screening_report(y[te], pred_h, pend_te)
     sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
-               min_leaf=best["min_leaf"], cf=best["cf"], target_met_oof=best["target_met_oof"])
+               min_leaf=best["min_leaf"], cf=best["cf"], tier=best["tier"],
+               target_met_oof=best["target_met_oof"], oof_target_met=best["oof_target_met"])
     metrics["hybrid_selective"] = sel
 
     # 6. Ghi kết quả chi tiết từng phiếu
