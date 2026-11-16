@@ -252,17 +252,23 @@ Chia train 1750 / val 250 / test 500 theo `group_id` (một phiếu gốc không
 
 - CNN phát hiện dấu theo ô đạt accuracy 1.0 trên tập test (cấp ô).
 - CNN toàn ảnh không học: val_acc cố định 0.20. Chưa điều tra nguyên nhân. Đối chứng này chưa có giá trị.
-- Ngưỡng chuyển `PENDING_REVIEW` (cấu hình chọn trên OOF Train): Invalid Screening Recall 1.000, Coverage 0.856, Referral Rate 0.144, **Selective Risk 0.068 (vượt ngưỡng 0.02)**. Không đạt nghiệm thu.
+- Cấu hình chọn trên OOF Train: `min_leaf=80`, `cf=0.25`, `leaf_min_n=0`, τ_CNN=0.5, τ_C4.5=0.66. Đây là cấu hình xếp hạng cao nhất nhưng **không cấu hình nào trong 192 cấu hình đạt cả ba ràng buộc trên OOF** (OOF: Selective Risk 0.123). Dùng làm mốc, không phải kết quả đạt.
+- Trên Test với cấu hình trên: Invalid Screening Recall 1.000, Automatic Invalid Recall 0.943, Coverage 0.856, Referral Rate 0.144, **Selective Risk 0.068 (vượt ngưỡng 0.02)**. Không đạt nghiệm thu.
+- Hybrid trên Test: accuracy 0.896, Recall "không hợp lệ" 0.943, Precision 1.000. Nhầm lẫn chính: 58/100 `wrong_mark` đúng, 23 `wrong_mark` → `valid` và 19 → `blank`.
+- Demo hash-chain: sửa một block, `verify()` trả `False`. Đây là kết quả đúng (phát hiện sửa đổi). Dòng `chuỗi còn hợp lệ: False` trong log là mong đợi, không phải lỗi chuỗi gốc (chuỗi gốc có `True`).
 
 **Đọc kết quả thận trọng:** trên dữ liệu giả lập, 8 đặc trưng thủ công gần như tách hoàn toàn các lớp, nên C4.5 đơn thuần đã đạt kết quả gần tối đa. Lợi ích của CNN chỉ kiểm chứng được trên ảnh scan thật (nhiễu, bóng, tẩy xóa, chữ ký không đều). Lớp `wrong_mark` là lớp khó nhất; 19 phiếu `wrong_mark` trên tập test rơi vào một lá C4.5 không tách được (xem audit).
 
-Luật C4.5 học được (một phần, từ lần chạy trước):
+Luật của C4.5 lai (cấu hình chọn ở trên, lần chạy gần nhất). Lá `n=404, lỗi=63` là lá gây lỗi `wrong_mark` → `blank` trên Test:
 
 ```
-IF count_ink_boxes ≤ 0.5 AND left_band_ink ≤ 0.011 AND extra_zone_ink ≤ 0.022 THEN blank
-IF count_ink_boxes > 0.5 AND count_ink_boxes ≤ 3.5                            THEN valid
-IF count_ink_boxes > 3.5 AND max_box_density > 0.401                          THEN erased
-IF count_ink_boxes > 3.5 AND max_box_density ≤ 0.401                          THEN multi_mark
+IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob ≤ 0.1807 AND max_box_density ≤ 0.06037 AND left_band_ink ≤ 0.0006498  THEN blank      [n=404, lỗi=63]
+IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob ≤ 0.1807 AND max_box_density ≤ 0.06037 AND left_band_ink > 0.0006498   THEN wrong_mark [n=80,  lỗi=3]
+IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob ≤ 0.1807 AND max_box_density > 0.06037                                  THEN wrong_mark [n=125, lỗi=6]
+IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob > 0.1807 AND cnn_count_marked ≤ 1.5                                      THEN valid      [n=246, lỗi=91]
+IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob > 0.1807 AND cnn_count_marked > 1.5                                      THEN valid      [n=195, lỗi=0]
+IF cnn_count_marked > 3.5 AND mean_box_density ≤ 0.3373                                                              THEN multi_mark [n=326, lỗi=1]
+IF cnn_count_marked > 3.5 AND mean_box_density > 0.3373                                                              THEN erased     [n=374, lỗi=25]
 ```
 
 ### MLOps tối thiểu
