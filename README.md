@@ -35,6 +35,140 @@ Electoral-System/
         └── network/deploy.sh     # script triển khai chaincode lên test-network
 ```
 
+## Hướng dẫn chạy từng bước
+
+Làm theo đúng thứ tự. Mỗi bước có lệnh kiểm tra để xác nhận bước trước đã đúng.
+
+### Bước 0 — Yêu cầu
+
+| Công cụ | Dùng cho | Ghi chú |
+|---|---|---|
+| Python 3.11 | Module AI, sinh dữ liệu, test | Docker image cũng dùng 3.11 |
+| Git | Lấy mã | |
+| Go ≥ 1.21 | Test Merkle và biên dịch chaincode | Chưa biên dịch được chaincode nếu không có mạng để tải module |
+| Docker | Chạy Fabric test-network, build image | Không chạy được trên Google Colab |
+| GPU (tùy chọn) | Huấn luyện CNN nhanh hơn | Trên CPU, CNN toàn ảnh mất khoảng 20 phút |
+
+### Bước 1 — Lấy mã và chọn nhánh
+
+```bash
+git clone https://github.com/Shoun93/electoral-system
+cd electoral-system
+git checkout feat/ba-giai-doan-1-selective     # nhánh đang phát triển; main chưa có thay đổi chọn PENDING_REVIEW
+```
+
+Kiểm tra: `git log --oneline -1` cho ra commit mới nhất của nhánh.
+
+### Bước 2 — Cài thư viện Python
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate                      # Windows: .venv\Scripts\activate
+pip install -r modules/ballot-validation-ai/requirements.txt
+```
+
+Không có GPU, cài torch bản CPU trước để tránh tải bản CUDA:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+Kiểm tra: `python -c "import torch, sklearn, cv2; print('ok')"` in ra `ok`.
+
+### Bước 3 — Sinh dữ liệu giả lập
+
+Chạy từ gốc repo:
+
+```bash
+python dataset/generate_dataset.py --out modules/ballot-validation-ai
+```
+
+Sinh 2500 ảnh (500 mỗi nhãn), seed 42, ghi vào `modules/ballot-validation-ai/data/`. Để thử nhanh, thêm `--samples-per-class 40` (200 ảnh).
+
+Kiểm tra: dòng cuối in `VALIDATION: PASS`.
+
+### Bước 4 — Chạy đơn vị kiểm thử
+
+```bash
+cd modules/ballot-validation-ai
+python -m unittest discover -s tests -v
+```
+
+Kiểm tra: `Ran 18 tests` và `OK`.
+
+### Bước 5 — Chạy pipeline AI
+
+```bash
+python main.py
+```
+
+Pipeline thực hiện theo thứ tự: tiền xử lý, baseline, C4.5 thủ công, CNN toàn ảnh (đối chứng), CNN theo ô (out-of-fold trên Train), chọn cấu hình C4.5 và ngưỡng `PENDING_REVIEW` trên OOF Train, huấn luyện mô hình lai, đánh giá trên Test, ghi hash-chain và Merkle batch.
+
+Các dòng cần xem:
+- `[chọn] min_leaf=... cf=... leaf_min_n=... τ_CNN=... τ_C4.5=...`: cấu hình được chọn trên OOF Train.
+- `[nghiệm thu Test] ĐẠT` hoặc `KHÔNG ĐẠT`: kết quả so với ràng buộc Recall ≥ 0.98, Coverage ≥ 0.80 (chưa phê duyệt), Selective Risk ≤ 0.02.
+
+**Cảnh báo:**
+- Nếu đổi dữ liệu (chạy lại bước 3 với seed hoặc số ảnh khác), xóa cache trước: `rm -f results/mark_probs_cache.npz`. Cache chỉ kiểm tra danh sách file, không kiểm tra seed hay config.
+- Lần chạy hiện tại trên Test **không ĐẠT** ràng buộc Selective Risk. Đây là kết quả thật, không chỉnh ngưỡng để đạt. Xem [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
+- Tập Test đã được dùng nhiều lần để khám phá. Không dùng số Test để báo cáo nghiệm thu.
+
+Kết quả ghi trong `modules/ballot-validation-ai/results/`:
+
+| File | Nội dung |
+|---|---|
+| `metrics.json` | Chỉ số tất cả mô hình, kết quả `hybrid_selective` |
+| `predictions.csv` | Dự đoán từng phiếu Test, cột `status` (`AUTO_CLASSIFIED` / `PENDING_REVIEW`) |
+| `hashchain.json` | Chuỗi khối cục bộ |
+| `fabric_batch.json` | Lô lá Merkle để chaincode `CommitBatch` / `VerifyBatch` |
+| `metrics_log.json` | Lịch sử các lần chạy |
+| `mark_probs_cache.npz` | Cache xác suất CNN theo ô |
+
+Thư mục `models/` chứa mô hình đã huấn luyện. `results/`, `models/` và `data/` không commit (xem `.gitignore`).
+
+Kiểm tra: `python -c "import json; print(json.load(open('results/metrics.json'))['hybrid_selective']['coverage'])"` in ra một số (Coverage).
+
+### Bước 6 — Kiểm tra Merkle trong Go
+
+```bash
+cd ../blockchain-ledger/chaincode/ballot
+go test ./merkle/ -v
+```
+
+Kiểm tra: `PASS` cho 3 test.
+
+Không chạy được `go build ./...` khi không có mạng để tải `fabric-contract-api-go`.
+
+### Bước 7 — Fabric test-network (chỉ trên máy có Docker)
+
+Bước này chưa được kiểm thử đầy đủ. Đối chiếu [`modules/blockchain-ledger/README.md`](modules/blockchain-ledger/README.md) trước khi làm.
+
+```bash
+cd "$HOME/fabric-samples/test-network"
+./network.sh up createChannel -c electionchannel -ca
+./addOrg3/addOrg3.sh up -c electionchannel -ca
+
+cd /path/to/electoral-system                  # thay bằng đường dẫn repo của bạn
+FABRIC_SAMPLES="$HOME/fabric-samples" modules/blockchain-ledger/network/deploy.sh
+```
+
+`deploy.sh` dùng quy trình `peer lifecycle` cũ. Quy trình CCaaS đã chạy trên máy phát triển nhưng chưa có trong repo.
+
+Không commit thư mục `organizations/`, khóa hay MSP.
+
+### Bước 8 — Chạy bằng Docker (tùy chọn)
+
+Image này chỉ chạy pipeline AI, không chạy Fabric:
+
+```bash
+docker build -t ballot-ai .
+mkdir -p results models
+docker run --rm -v "$PWD/results:/app/modules/ballot-validation-ai/results" \
+                -v "$PWD/models:/app/modules/ballot-validation-ai/models" ballot-ai
+```
+
+Dockerfile chưa được build kiểm chứng. Nếu container không có `data/` và `main.py` không tự sinh được, chạy bước 3 bên trong container trước.
+
 ## 1. Module kiểm phiếu bằng AI
 
 Pipeline: sinh phiếu → tiền xử lý → CNN phát hiện dấu trên từng ô → C4.5 ra quyết định → đánh giá → ghi lên hash-chain.
