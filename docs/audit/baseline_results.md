@@ -78,8 +78,37 @@ Sửa: tách Val theo group trước khi tách theo nhãn (Phase 1).
 | `metrics_log.json` | Có 2 lần trước khi làm mới; `results/` bị ghi đè mỗi lần chạy (P2) |
 | Cache CNN theo ô | Khóa theo danh sách file, không theo seed/config/checksum (P0-P1) |
 
-## 7. Việc còn lại cho Phase 0
+## 7. Ổn định qua seed dữ liệu (Phase 0, chỉ báo cáo)
 
-- Chạy lại baseline với seed khác (ví dụ 3 seed) để đo độ ổn định — **không** dùng Test để chọn, chỉ báo cáo.
-- Đưa lỗi `wrong_mark` → `blank` vào test-case để theo dõi trong Phase 1.
-- Ghi số liệu đúng vào README sau khi sửa code.
+Sinh lại dữ liệu với `--seed 1, 2, 3` (mỗi seed 2500 ảnh, chia theo group của generator). Chỉ chạy baseline và C4.5 thủ công trên 8 đặc trưng (không có CNN, để tiết kiệm thời gian). Tập test không dùng để chọn gì; số liệu chỉ để đo độ biến thiên.
+
+| Mô hình | seed 1 acc | seed 2 acc | seed 3 acc | seed 42 acc (lần chạy chính) |
+|---|---|---|---|---|
+| Majority | 0.200 | 0.200 | 0.200 | 0.200 |
+| Naive Bayes | 0.800 | 0.848 | 0.800 | 0.802 |
+| kNN (k=5) | 0.948 | 0.904 | 0.918 | 0.916 |
+| C4.5 (thủ công) | 0.942 | 0.924 | 0.936 | 0.916 |
+
+Invalid Recall của C4.5 thủ công: 0.960 / 0.928 / 0.950 (seed 1/2/3), 0.935 (seed 42).
+
+Kết luận: C4.5 thủ công có accuracy 0.916–0.942 (biên độ 0.026, 4 seed) và invalid recall 0.928–0.960. Biên độ của kNN là 0.904–0.948 và của Naive Bayes là 0.800–0.848. C4.5 ổn định hơn cả hai trên các seed này. Không có số liệu hybrid qua nhiều seed (chưa chạy do chi phí CNN).
+
+Dữ liệu seed 1–3 nằm ngoài repo (`scratchpad`). Script: `stab.py`.
+
+## 8. Kiểm tra chaincode và Merkle (Go)
+
+| Kiểm tra | Kết quả |
+|---|---|
+| `go test ./merkle/ -v` (Go đã cài tại `/usr/local/go`) | ✅ PASS: `TestVector`, `TestSingleLeafIsItself`, `TestRejectsBadLeaf` |
+| `go build ./...` trong `chaincode/ballot` | ❌ Không tải được `github.com/hyperledger/fabric-contract-api-go/v2 v2.2.0` (không truy cập `proxy.golang.org` từ máy này). Chưa biên dịch được `main.go`. |
+| `go vet ./...` | ❌ Cùng nguyên nhân (không có module). |
+| Đọc `main.go` (177 dòng) | Có 11 hàm: `requireMSP`, `putNew`, `RecordModelAnchor`, `RecordBallot`, `GetBallot`, `CommitBatch`, `VerifyBatch`, `PutTallyPrivate`, `VerifyTallyPrivate`, `main`. Không có hàm pending/review. |
+| Triển khai Fabric | Chưa chạy. `deploy.sh` không kiểm thử. |
+
+Hạn chế kiểm tra: chaincode chưa biên dịch trên máy này. Cần mạng để tải module, hoặc vendor module trước.
+
+## 9. Việc đã làm và còn lại của Phase 0
+
+Đã có: `current_state.md`, `baseline_results.md`, `known_failures_wrong_mark.csv` (19 phiếu, cùng một lá), số liệu ổn định qua seed, kiểm tra Go Merkle.
+
+Chưa xong: chaincode chưa biên dịch được (cần mạng hoặc vendor). Phần này nằm ngoài khả năng hoàn thành trên máy này.
