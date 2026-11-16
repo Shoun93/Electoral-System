@@ -41,9 +41,9 @@ decision:                    # NFR-09 / NFR-10 (BA v15)
   coverage_min: 0.80         # đề xuất, CHƯA PHÊ DUYỆT — ghi rõ trong kết quả
   tau_step: 0.01             # bước lưới τ
   cv_folds: 5                # StratifiedGroupKFold theo group_id
-  grid_min_leaf: [5, 10, 20, 40]          # grid C4.5 (chọn bằng OOF Train)
-  grid_cf: [0.25, 0.1, 0.05]
-  grid_leaf_min_n: [0, 10, 20, 40, 60, 100]   # lá có < n mẫu train → PENDING_REVIEW
+  grid_min_leaf: [3, 5, 10, 20, 40, 80]   # grid C4.5 (chọn bằng OOF Train)
+  grid_cf: [0.25, 0.1, 0.05, 0.01]
+  grid_leaf_min_n: [0, 10, 20, 40, 60, 100, 150, 200]   # lá có < n mẫu train → PENDING_REVIEW
 
 hashchain:
   difficulty: 3
