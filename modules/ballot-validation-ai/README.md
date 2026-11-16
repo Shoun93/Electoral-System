@@ -93,20 +93,22 @@ Toàn bộ thông tin cá nhân trên thẻ là **giả lập**.
 
 | Mô hình | Accuracy | Macro-F1 | Recall "không hợp lệ" | Precision "không hợp lệ" |
 |---|---|---|---|---|
-| Baseline majority | 0.200 | 0.07 | 0.000 | 0.000 |
-| Baseline Naive Bayes | 0.800 | 0.78 | 0.910 | 0.995 |
-| Baseline kNN (k=5) | 0.920 | 0.91 | 0.948 | 0.977 |
-| C4.5 (đặc trưng thủ công) | 0.920 | 0.91 | 0.935 | 0.997 |
-| CNN toàn ảnh 224×224 (đối chứng) | 0.200 | 0.07 | 1.000* | 0.800* |
-| **Mô hình lai (CNN theo ô + C4.5)** | **0.940** | **0.94** | **0.965** | **0.997** |
+| Baseline majority | 0.200 | 0.067 | 0.000 | 0.000 |
+| Baseline Naive Bayes | 0.802 | 0.781 | 0.910 | 0.995 |
+| Baseline kNN (k=5) | 0.916 | 0.914 | 0.948 | 0.977 |
+| C4.5 (đặc trưng thủ công) | 0.916 | 0.912 | 0.935 | 0.997 |
+| CNN toàn ảnh 224×224 (đối chứng, không học) | 0.200 | 0.067 | 1.000* | 0.800* |
+| **Mô hình lai (CNN theo ô + C4.5)** | **0.896** | **0.89** | **0.943** | **1.000** |
 
-\* CNN toàn ảnh chỉ dự đoán lớp `blank` cho mọi mẫu. Recall 1.0 không phản ánh khả năng phân loại.
+\* CNN toàn ảnh chỉ dự đoán lớp `blank` cho mọi mẫu. `blank` thuộc nhóm không hợp lệ nên recall 1.0 và precision 0.8 (400/500) không phản ánh khả năng phân loại.
 
-CNN phát hiện dấu trên từng ô đạt accuracy **0.9996** trên tập test (cấp ô).
+Mô hình lai (lần chạy gần nhất): cấu hình chọn trên OOF Train là `min_leaf=80`, `cf=0.25`, `leaf_min_n=0`, τ_CNN=0.5, τ_C4.5=0.66. Trên Test, Invalid Screening Recall 1.000, Coverage 0.856, Selective Risk **0.068** (ngưỡng 0.02): **không đạt**.
+
+CNN phát hiện dấu trên từng ô đạt accuracy **1.0000** trên tập test (cấp ô).
 
 **Đọc kết quả thận trọng:**
-- Mô hình lai cao hơn C4.5 thuần và kNN khoảng 2 điểm phần trăm trên 500 mẫu. Chưa có nhiều seed hay kiểm định thống kê, nên chưa thể kết luận mô hình lai tốt hơn.
-- Lớp khó nhất là `wrong_mark` (recall 0.75 ở mô hình lai). Phần lớn lỗi là nhầm sang `valid` và `blank`.
+- Mô hình lai thấp hơn C4.5 thuần và kNN khoảng 2 điểm phần trăm trên 500 mẫu. Chưa có nhiều seed hay kiểm định thống kê.
+- Lớp khó nhất là `wrong_mark` (recall 0.58 ở mô hình lai). Lỗi: 23 phiếu → `valid`, 19 phiếu → `blank`.
 - CNN toàn ảnh không học được: loss ở các epoch gần như đứng yên ở mức 1.609 (≈ ln 5), val_acc cố định 0.20. Nguyên nhân chưa được kiểm chứng; các giả thuyết gồm tốc độ học, chuẩn hóa đầu vào và độ mỏng của nét dấu khi thu về 224×224.
 - Dữ liệu là giả lập, nhãn sinh bằng quy tắc. Kết quả không chứng minh hiệu năng trên phiếu thật.
 
