@@ -6,6 +6,7 @@ Hai nhánh dùng hai độ phân giải khác nhau:
 Ảnh nhị phân: 1 = mực (chữ, dấu), 0 = nền.
 """
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -62,11 +63,26 @@ def generate_synthetic_ballots():
     gen.generate(out_root=MODULE_DIR)
 
 
+def source_hash():
+    """SHA-256 của nhãn, ROI và danh sách ảnh raw. Đổi bất kỳ thứ nào thì phải build lại dataset.npz."""
+    h = hashlib.sha256()
+    for p in (abspath(CFG["data"]["labels_csv"]), abspath(CFG["data"]["boxes_json"])):
+        with open(p, "rb") as f:
+            h.update(f.read())
+    raw = abspath(CFG["data"]["raw_dir"])
+    for name in sorted(os.listdir(raw)):
+        h.update(name.encode())
+        with open(os.path.join(raw, name), "rb") as f:
+            h.update(hashlib.sha256(f.read()).digest())
+    return h.hexdigest()
+
+
 def build_processed(force=False):
     """Đọc ảnh gốc → đặc trưng C4.5 (ở độ phân giải gốc) + ảnh CNN 224×224 → một file .npz."""
     out = abspath(CFG["data"]["processed_npz"])
-    if os.path.exists(out) and not force:
-        return out
+    src = source_hash()
+    if os.path.exists(out) and not force and str(np.load(out)["source_hash"]) == src:
+        return out                       # chỉ dùng cache khi nguồn (nhãn, ROI, ảnh) không đổi
     os.makedirs(os.path.dirname(out), exist_ok=True)
     labels = CFG["labels"]
     with open(abspath(CFG["data"]["labels_csv"]), encoding="utf-8") as f:
@@ -94,7 +110,7 @@ def build_processed(force=False):
                         C=np.stack(C), M=np.asarray(M, dtype=np.int64),
                         y=np.asarray(y), split=np.asarray(split), files=np.asarray(files),
                         groups=np.asarray(groups),
-                        feature_names=np.asarray(FEATURE_NAMES))
+                        feature_names=np.asarray(FEATURE_NAMES), source_hash=np.asarray(src))
     print(f"✅ Tiền xử lý {len(rows)} phiếu → {out}")
     return out
 

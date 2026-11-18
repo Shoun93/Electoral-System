@@ -144,12 +144,18 @@ func (c *BallotChaincode) PutTallyPrivate(ctx contractapi.TransactionContextInte
 	if !ok {
 		return fmt.Errorf("thiếu transient 'serial'")
 	}
+	// Ghi một lần như putNew: không ghi đè private data hoặc băm công khai đã có.
+	if old, err := ctx.GetStub().GetPrivateData(privateColl, "tally:"+ballotID); err != nil {
+		return err
+	} else if old != nil {
+		return fmt.Errorf("private data tally:%s đã tồn tại, không ghi đè", ballotID)
+	}
 	if err := ctx.GetStub().PutPrivateData(privateColl, "tally:"+ballotID, serial); err != nil {
 		return err
 	}
 	h := sha256.Sum256(serial)
 	// Chỉ băm được công khai: người không thuộc collection kiểm chứng được qua hàm dưới.
-	return ctx.GetStub().PutState("tallyhash:"+ballotID, []byte(hex.EncodeToString(h[:])))
+	return putNew(ctx, "tallyhash:"+ballotID, hex.EncodeToString(h[:]))
 }
 
 // VerifyTallyPrivate: thành viên collection đọc private data và so với băm công khai.

@@ -119,3 +119,22 @@ def grid_search(H, y, groups, p_marks, grid=None):
                 if best is None or rank(t["oof"]) > rank(best["oof"]):
                     best = t
     return best
+
+
+# ---------------------------------------------------------------------------
+# ĐỀ XUẤT PHÁP LÝ cho Tổ bầu cử (BA v15: BR-01, BR-06, BR-07b, P-01)
+# Hệ thống chỉ ĐỀ XUẤT. Quyết định cuối cùng do Tổ bầu cử ghi nhận (FR-09).
+# Theo quyết định của nhóm: BLANK được tính là KHÔNG HỢP LỆ (mọi nhãn khác `valid`).
+# Lưu ý: điều này khác BR-06 hiện hành ("không mặc định là không hợp lệ về pháp lý"); BA cần sửa BR-06.
+# ---------------------------------------------------------------------------
+PROPOSED_VALID = "PROPOSED_LEGAL_VALID"
+PROPOSED_INVALID = "PROPOSED_LEGAL_INVALID"
+PENDING = "PENDING_REVIEW"
+
+
+def propose_legal(pred, pending):
+    """Trả về trạng thái đề xuất cho từng phiếu. pred: chỉ số lớp (0 = valid, 1 = blank, ...)."""
+    pred, pending = np.asarray(pred), np.asarray(pending, dtype=bool)
+    out = np.where(pred == VALID_IDX, PROPOSED_VALID, PROPOSED_INVALID).astype(object)
+    out[pending] = PENDING
+    return out

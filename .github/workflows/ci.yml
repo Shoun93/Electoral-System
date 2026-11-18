@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cài phụ thuộc kiểm thử (không cài torch để chạy nhanh)
+        run: pip install numpy scipy scikit-learn opencv-python-headless pyyaml joblib
+      - name: Unit test
+        working-directory: modules/ballot-validation-ai
+        run: python -m unittest discover -s tests -v
+  go-merkle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Test Merkle (không phụ thuộc Fabric)
+        working-directory: modules/blockchain-ledger/chaincode/ballot
+        run: go test ./merkle/
+      - name: gofmt chaincode
+        run: test -z "$(gofmt -l modules/blockchain-ledger/chaincode/ballot)"

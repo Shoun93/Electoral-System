@@ -37,3 +37,13 @@ def summarize(name, y_true, y_pred):
         "invalid_precision": round(inv_precision, 4),
         "confusion_matrix": cm.tolist(),
     }
+
+
+def clopper_pearson_upper(k, n, conf=0.95):
+    """Cận trên Clopper–Pearson MỘT PHÍA. Chốt trong BA v15 mục 3.4 (NFR-12)."""
+    from scipy.stats import beta
+    if n <= 0:
+        return 1.0
+    if k >= n:
+        return 1.0
+    return float(beta.ppf(conf, k + 1, n - k))

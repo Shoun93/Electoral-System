@@ -87,6 +87,36 @@ class TestMerkle(unittest.TestCase):
         self.assertEqual(merkle_root(["ab" * 32]), "ab" * 32)
 
 
+class TestFeatureEdges(unittest.TestCase):
+    def test_edge_density_no_uint8_wraparound(self):
+        import feature_c45
+        b = np.zeros((4, 4), dtype=np.uint8)
+        b[1:3, 1:3] = 1                    # ô 2×2 ở giữa: 8 chuyển 0↔1 theo hàng/cột
+        layout = {"boxes": [(0, 0, 2, 2)], "left_band": (0, 0, 2, 2), "extra_zone": (0, 0, 2, 2)}
+        f = feature_c45.extract_features(b, layout)
+        self.assertAlmostEqual(f[4], 8 / 16, places=6)
+
+
+class TestDecision(unittest.TestCase):
+    def test_blank_is_proposed_invalid(self):
+        import decision
+        out = decision.propose_legal([0, 1, 2, 3, 4], [False] * 5)
+        self.assertEqual(list(out), [decision.PROPOSED_VALID] + [decision.PROPOSED_INVALID] * 4)
+
+    def test_pending_overrides_prediction(self):
+        import decision
+        out = decision.propose_legal([0, 1], [True, False])
+        self.assertEqual(out[0], decision.PENDING)
+
+
+class TestClopperPearson(unittest.TestCase):
+    def test_zero_errors_thresholds(self):
+        from evaluate import clopper_pearson_upper as cp
+        self.assertLessEqual(cp(0, 299), 0.01)     # BA: 299 mẫu đủ cho 1%
+        self.assertGreater(cp(0, 298), 0.00999)
+        self.assertLessEqual(cp(0, 149), 0.02)     # BA: 149 mẫu đủ cho 2%
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -21,12 +21,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src
 import numpy as np
 
 from config import CFG, abspath
-from preprocess import generate_synthetic_ballots, load_dataset, split_train_val
+from preprocess import generate_synthetic_ballots, load_dataset, split_train_val, source_hash
 from baselines import train_baselines
 from c45 import C45Classifier
 from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
-from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_probs, predict_marks
+from train_cnn import train_cnn, predict_cnn, oof_mark_probs, predict_marks, predict_marks_ensemble
 from evaluate import summarize
 from decision import confidences, feasible, grid_search, is_pending, screening_report
 from hashchain import HashChain, sha256_file
@@ -79,17 +79,19 @@ def main():
     # 5. Mô hình lai
     print("\n----- CNN phát hiện dấu theo ô (out-of-fold) + C4.5 -----")
     # Cache xác suất CNN theo ô (chỉ phụ thuộc dữ liệu + config, không phụ thuộc lưới C4.5)
-    cache = os.path.join(results_dir, "mark_probs_cache.npz")
-    if os.path.exists(cache) and np.array_equal(np.load(cache)["files"], files):
+    cache = os.path.join(results_dir, "mark_probs_cache_v2.npz")   # v2: va/te dùng ensemble 5 fold
+    if os.path.exists(cache) and np.array_equal(np.load(cache)["files"], files) \
+            and str(np.load(cache)["source_hash"]) == source_hash():
         c_ = np.load(cache)
         p_marks_tr, p_marks_va, p_marks_te = c_["tr"], c_["va"], c_["te"]
         print("[cache] nạp xác suất CNN theo ô từ", cache)
     else:
-        p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
-        mark_model = train_mark_cnn(C[tr], M[tr])
-        p_marks_va = predict_marks(mark_model, C[va])
-        p_marks_te = predict_marks(mark_model, C[te])
-        np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, files=files)
+        p_marks_tr, fold_models = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr],
+                                                 return_models=True)   # OOF cho train, chia theo group
+        p_marks_va = predict_marks_ensemble(fold_models, C[va])        # cùng cơ chế với train
+        p_marks_te = predict_marks_ensemble(fold_models, C[te])
+        np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, files=files,
+                 source_hash=np.asarray(source_hash()))
     mark_acc_te = float(((p_marks_te > 0.5).astype(int) == M[te]).mean())
     print(f"CNN phát hiện dấu trên ô (test, từng ô): accuracy={mark_acc_te:.4f}")
     metrics["mark_cnn_box_accuracy"] = round(mark_acc_te, 4)

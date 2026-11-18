@@ -45,7 +45,8 @@ def extract_features(binary, layout):
     mean_d, max_d = float(np.mean(dens)), float(np.max(dens))
 
     total = float(b.mean())
-    edges = (np.abs(np.diff(binary, axis=1)).sum() + np.abs(np.diff(binary, axis=0)).sum()) / (H * W)
+    bi = binary.astype(np.int16)  # uint8 làm 0-1 tràn thành 255
+    edges = (np.abs(np.diff(bi, axis=1)).sum() + np.abs(np.diff(bi, axis=0)).sum()) / (H * W)
     noise = float(np.std(b - cv2.GaussianBlur(b, (3, 3), 0)))
 
     left = _density(b, layout["left_band"], 0)
