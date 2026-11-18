@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 import numpy as np
+import torch
 
 from config import CFG, abspath
 from preprocess import generate_synthetic_ballots, load_dataset, split_train_val
@@ -80,13 +81,18 @@ def main():
     print("\n----- CNN phát hiện dấu theo ô (out-of-fold) + C4.5 -----")
     # Cache xác suất CNN theo ô (chỉ phụ thuộc dữ liệu + config, không phụ thuộc lưới C4.5)
     cache = os.path.join(results_dir, "mark_probs_cache.npz")
-    if os.path.exists(cache) and np.array_equal(np.load(cache)["files"], files):
+    mark_model_path = abspath("models/mark_cnn.pt")
+    # Cache chỉ dùng được khi cùng danh sách file VÀ đã có mark_cnn.pt (predict.py cần file này)
+    if os.path.exists(cache) and os.path.exists(mark_model_path) and np.array_equal(np.load(cache)["files"], files):
         c_ = np.load(cache)
         p_marks_tr, p_marks_va, p_marks_te = c_["tr"], c_["va"], c_["te"]
         print("[cache] nạp xác suất CNN theo ô từ", cache)
     else:
         p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
         mark_model = train_mark_cnn(C[tr], M[tr])
+        os.makedirs(os.path.dirname(mark_model_path), exist_ok=True)
+        torch.save(mark_model.state_dict(), mark_model_path)                   # để predict.py dùng
+        print("✅ Đã lưu CNN theo ô →", mark_model_path)
         p_marks_va = predict_marks(mark_model, C[va])
         p_marks_te = predict_marks(mark_model, C[te])
         np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, files=files)
