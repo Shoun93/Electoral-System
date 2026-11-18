@@ -13,11 +13,11 @@ import os
 import cv2
 import numpy as np
 
-from config import CFG, MODULE_DIR, abspath
+from config import CFG, MODULE_DIR, SRC_DIR, abspath
 from feature_c45 import extract_features, FEATURE_NAMES
 
 SIZE = CFG["preprocess"]["img_size"]
-REPO_ROOT = os.path.abspath(os.path.join(MODULE_DIR, "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(SRC_DIR, "..", ".."))
 GENERATOR_PATH = os.path.join(REPO_ROOT, "dataset", "generate_dataset.py")
 
 
@@ -109,10 +109,12 @@ def load_dataset():
 
 
 def split_train_val(data, seed=42):
-    """Tách validation từ tập train (phân tầng theo nhãn). Tập test giữ nguyên."""
-    from sklearn.model_selection import train_test_split
+    """Tách validation từ Train THEO GROUP (không để cùng một phiếu gốc ở cả hai tập), phân tầng theo nhãn.
+    Số fold = 1/val_fraction; lấy một fold làm validation. Tập test giữ nguyên."""
+    from sklearn.model_selection import StratifiedGroupKFold
     tr_idx = np.where(data["split"] == "train")[0]
     te_idx = np.where(data["split"] == "test")[0]
-    tr_idx, va_idx = train_test_split(tr_idx, test_size=CFG["data"]["val_fraction"],
-                                      random_state=seed, stratify=data["y"][tr_idx])
-    return {"train": tr_idx, "val": va_idx, "test": te_idx}
+    k = round(1.0 / CFG["data"]["val_fraction"])
+    rel_tr, rel_va = next(StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed)
+                          .split(tr_idx, data["y"][tr_idx], data["groups"][tr_idx]))
+    return {"train": tr_idx[rel_tr], "val": tr_idx[rel_va], "test": te_idx}

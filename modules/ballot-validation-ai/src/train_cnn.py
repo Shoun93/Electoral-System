@@ -162,16 +162,16 @@ def _fit_mark_cnn(C, M, cfg, seed=42):
     return model
 
 
-def predict_marks(model, C, batch_size=256):
-    """C: (n,5,48,48) crop của từng phiếu → xác suất có dấu (n,5)."""
+def predict_mark_logits(model, C, batch_size=256):
+    """C: (n,5,48,48) crop của từng phiếu → logit có dấu (n,5). Xác suất = sigmoid(logit / T), T fit trên OOF."""
     model.eval()
     n, k = C.shape[:2]
     flat = C.reshape(n * k, *C.shape[2:])
     out = []
     with torch.no_grad():
         for i in range(0, len(flat), batch_size):
-            out.append(torch.sigmoid(model(_to_tensor(flat[i:i + batch_size]).to(DEVICE))).cpu().numpy())
-    return np.concatenate(out).reshape(n, k)
+            out.append(model(_to_tensor(flat[i:i + batch_size]).to(DEVICE)).cpu().numpy())
+    return np.concatenate(out).reshape(n, k).astype(np.float64)
 
 
 def train_mark_cnn(C_tr, M_tr, cfg=None):
@@ -180,7 +180,7 @@ def train_mark_cnn(C_tr, M_tr, cfg=None):
     return model
 
 
-def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None):
+def oof_mark_logits(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None):
     """
     Out-of-fold: mỗi phiếu train được dự đoán bởi mô hình KHÔNG thấy phiếu đó.
     Nhờ vậy C4.5 học trên xác suất CNN "thật" chứ không phải xác suất đã học thuộc.
@@ -188,12 +188,12 @@ def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None):
     """
     from sklearn.model_selection import KFold, StratifiedGroupKFold
     hp = dict(CFG["mark_cnn"], **(cfg or {}))
-    probs = np.zeros(M_tr.shape, dtype=np.float32)
+    logits = np.zeros(M_tr.shape, dtype=np.float64)
     if groups is None:
         splits = KFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr)
     else:
         splits = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr, strat, groups)
     for tr_i, te_i in splits:
         m = _fit_mark_cnn(C_tr[tr_i].reshape(-1, *C_tr.shape[2:]), M_tr[tr_i].reshape(-1), hp, seed)
-        probs[te_i] = predict_marks(m, C_tr[te_i])
-    return probs
+        logits[te_i] = predict_mark_logits(m, C_tr[te_i])
+    return logits

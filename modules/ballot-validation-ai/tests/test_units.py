@@ -157,3 +157,67 @@ class TestLeafRule(unittest.TestCase):
         n = clf.leaf_size(X)
         self.assertTrue((n >= 5).all())
         self.assertLessEqual(n.max(), 200)
+
+
+class TestGroupSplit(unittest.TestCase):
+    def test_validation_shares_no_group_with_train_or_test(self):
+        from preprocess import split_train_val
+        labels = ["valid", "blank", "erased", "wrong_mark", "multi_mark"]
+        n_groups = 80
+        groups, y, split = [], [], []
+        for g in range(n_groups):
+            for k in range(5):                       # một phiếu gốc → 5 mẫu, mỗi nhãn 1 mẫu
+                groups.append(f"g{g:03d}")
+                y.append(k)
+                split.append("test" if g >= 64 else "train")
+        data = {"groups": np.array(groups), "y": np.array(y), "split": np.array(split)}
+        idx = split_train_val(data, seed=42)
+        g_tr = set(data["groups"][idx["train"]])
+        g_va = set(data["groups"][idx["val"]])
+        g_te = set(data["groups"][idx["test"]])
+        self.assertEqual(g_tr & g_va, set())
+        self.assertEqual(g_va & g_te, set())
+        self.assertEqual(len(idx["train"]) + len(idx["val"]), int((data["split"] == "train").sum()))
+        self.assertGreater(len(idx["val"]), 0)
+
+
+class TestDecisionV2(unittest.TestCase):
+    def test_infeasible_rank_prefers_smaller_risk_gap(self):
+        from decision import rank
+        small = {"invalid_screening_recall": 1.0, "coverage": 0.852, "selective_risk": 0.040}
+        big = {"invalid_screening_recall": 1.0, "coverage": 0.859, "selective_risk": 0.123}
+        self.assertGreater(rank(small), rank(big))   # cùng 1 vi phạm; vượt risk nhỏ hơn thắng
+
+    def test_cp_bounds_for_zero_errors(self):
+        from decision import cp_upper, cp_lower
+        self.assertLessEqual(cp_upper(0, 149), 0.02)  # 149 phiếu auto không lỗi → risk ≤ 0.02 ở 95% một phía
+        self.assertGreater(cp_upper(0, 148), 0.02)
+        self.assertEqual(cp_lower(0, 100), 0.0)
+        self.assertEqual(cp_upper(100, 100), 1.0)
+
+    def test_temperature_boundary_falls_back_to_std(self):
+        from decision import fit_temperature
+        z = np.array([-30.0, -20.0, 25.0, 40.0])        # OOF phân tách hoàn hảo → nghiệm T→0
+        M = np.array([0, 0, 1, 1])
+        T, method = fit_temperature(z, M)
+        self.assertTrue(method.startswith("std_fallback"))
+        self.assertAlmostEqual(T, float(np.std(z)), places=6)
+
+    def test_temperature_recovers_overconfidence(self):
+        from decision import fit_temperature
+        rng = np.random.default_rng(0)
+        true_z = rng.normal(0, 1.5, size=5000)
+        M = (rng.uniform(size=5000) < 1 / (1 + np.exp(-true_z))).astype(int)
+        T, method = fit_temperature(true_z * 4.0, M)  # logit phóng đại ×4 → T ≈ 4
+        self.assertEqual(method, "nll")
+        self.assertGreater(T, 2.5)
+        self.assertLess(T, 6.0)
+
+    def test_oof_leaf_scaled_to_full_train_scale(self):
+        from decision import oof_c45
+        rng = np.random.default_rng(1)
+        H = rng.uniform(0, 1, size=(300, 3))
+        y = (H[:, 0] > 0.5).astype(int) + (H[:, 1] > 0.5).astype(int)
+        groups = np.arange(300) // 5
+        _, leaf_n = oof_c45(H, y, groups, {"min_leaf": 5, "cf": 0.25}, k=5)
+        self.assertTrue((leaf_n >= 5 * 5 / 4 - 1e-9).all())   # sàn min_leaf sau khi nhân k/(k-1)

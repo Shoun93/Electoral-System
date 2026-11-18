@@ -44,6 +44,7 @@ decision:                    # NFR-09 / NFR-10 (BA v15)
   grid_min_leaf: [3, 5, 10, 20, 40, 80]   # grid C4.5 (chọn bằng OOF Train)
   grid_cf: [0.25, 0.1, 0.05, 0.01]
   grid_leaf_min_n: [0, 10, 20, 40, 60, 100, 150, 200]   # lá có < n mẫu train → PENDING_REVIEW
+  grid_min_leaf_ext: [120, 160, 240]   # mở rộng khi nghiệm ở biên grid_min_leaf
 
 hashchain:
   difficulty: 3

@@ -12,6 +12,7 @@ PIPELINE END-TO-END
 Chạy trong thư mục ballot-validation-ai/:  python main.py
 """
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -26,9 +27,9 @@ from baselines import train_baselines
 from c45 import C45Classifier
 from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
-from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_probs, predict_marks
+from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_logits, predict_mark_logits
 from evaluate import summarize
-from decision import confidences, feasible, grid_search, is_pending, screening_report
+from decision import confidences, feasible, fit_temperature, grid_search, ci_report, is_pending, screening_report
 from hashchain import HashChain, sha256_file
 import merkle
 from monitor import check_drift, log_run
@@ -42,6 +43,19 @@ def hybrid_features(F, p_marks):
 
 
 HYBRID_NAMES = FEATURE_NAMES + ["cnn_count_marked", "cnn_mean_prob", "cnn_max_prob"]
+
+
+def _sigmoid(z):
+    return 1.0 / (1.0 + np.exp(-z))
+
+
+def _mark_cache_key(tr, va, te, files, C):
+    """Khóa cache logit CNN theo ô: dữ liệu ảnh, chỉ số tách, cấu hình CNN. Đổi bất kỳ cái nào → tính lại."""
+    h = hashlib.sha256()
+    for a in (files, tr, va, te, C):
+        h.update(np.ascontiguousarray(a).tobytes())
+    h.update(json.dumps(CFG["mark_cnn"], sort_keys=True).encode())
+    return h.hexdigest()
 
 
 def main():
@@ -79,17 +93,22 @@ def main():
     # 5. Mô hình lai
     print("\n----- CNN phát hiện dấu theo ô (out-of-fold) + C4.5 -----")
     # Cache xác suất CNN theo ô (chỉ phụ thuộc dữ liệu + config, không phụ thuộc lưới C4.5)
-    cache = os.path.join(results_dir, "mark_probs_cache.npz")
-    if os.path.exists(cache) and np.array_equal(np.load(cache)["files"], files):
+    cache = os.path.join(results_dir, "mark_logits_cache.npz")
+    key = _mark_cache_key(tr, va, te, files, C)
+    if os.path.exists(cache) and str(np.load(cache)["key"]) == key:
         c_ = np.load(cache)
-        p_marks_tr, p_marks_va, p_marks_te = c_["tr"], c_["va"], c_["te"]
-        print("[cache] nạp xác suất CNN theo ô từ", cache)
+        z_tr, z_va, z_te = c_["tr"], c_["va"], c_["te"]
+        print("[cache] nạp logit CNN theo ô từ", cache)
     else:
-        p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
+        z_tr = oof_mark_logits(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
         mark_model = train_mark_cnn(C[tr], M[tr])
-        p_marks_va = predict_marks(mark_model, C[va])
-        p_marks_te = predict_marks(mark_model, C[te])
-        np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, files=files)
+        z_va = predict_mark_logits(mark_model, C[va])
+        z_te = predict_mark_logits(mark_model, C[te])
+        np.savez(cache, tr=z_tr, va=z_va, te=z_te, key=np.asarray(key))
+    T, T_method = fit_temperature(z_tr, M[tr])        # calibration trên OOF Train, áp cho Val/Test
+    print(f"[calibration] temperature T={T:.4f} | phương pháp: {T_method} | lỗi OOF ô: "
+          f"{int(((z_tr > 0) != (M[tr] == 1)).sum())}/{M[tr].size}")
+    p_marks_tr, p_marks_va, p_marks_te = _sigmoid(z_tr / T), _sigmoid(z_va / T), _sigmoid(z_te / T)
     mark_acc_te = float(((p_marks_te > 0.5).astype(int) == M[te]).mean())
     print(f"CNN phát hiện dấu trên ô (test, từng ô): accuracy={mark_acc_te:.4f}")
     metrics["mark_cnn_box_accuracy"] = round(mark_acc_te, 4)
@@ -116,6 +135,10 @@ def main():
     sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
                min_leaf=best["min_leaf"], cf=best["cf"], tier=best["tier"],
                target_met_oof=best["target_met_oof"], oof_target_met=best["oof_target_met"])
+    sel.update(ci_report(y[te], pred_h, pend_te))
+    sel["temperature"] = round(T, 4)
+    sel["temperature_method"] = T_method
+    sel["grid_extended"] = best["grid_extended"]
     sel["accepted_test"] = feasible(sel)
     sel["coverage_min_status"] = "đề xuất, chưa phê duyệt"
     metrics["hybrid_selective"] = sel

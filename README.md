@@ -109,7 +109,7 @@ Các dòng cần xem:
 - `[nghiệm thu Test] ĐẠT` hoặc `KHÔNG ĐẠT`: kết quả so với ràng buộc Recall ≥ 0.98, Coverage ≥ 0.80 (chưa phê duyệt), Selective Risk ≤ 0.02.
 
 **Cảnh báo:**
-- Nếu đổi dữ liệu (chạy lại bước 3 với seed hoặc số ảnh khác), xóa cache trước: `rm -f results/mark_probs_cache.npz`. Cache chỉ kiểm tra danh sách file, không kiểm tra seed hay config.
+- Cache logit CNN (`results/mark_logits_cache.npz`) có khóa băm theo ảnh, chỉ số tách và cấu hình CNN. Đổi dữ liệu hoặc cấu hình thì tự tính lại, không cần xóa tay.
 - Lần chạy hiện tại trên Test **không ĐẠT** ràng buộc Selective Risk. Đây là kết quả thật, không chỉnh ngưỡng để đạt. Xem [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
 - Tập Test đã được dùng nhiều lần để khám phá. Không dùng số Test để báo cáo nghiệm thu.
 
@@ -122,7 +122,7 @@ Kết quả ghi trong `modules/ballot-validation-ai/results/`:
 | `hashchain.json` | Chuỗi khối cục bộ |
 | `fabric_batch.json` | Lô lá Merkle để chaincode `CommitBatch` / `VerifyBatch` |
 | `metrics_log.json` | Lịch sử các lần chạy |
-| `mark_probs_cache.npz` | Cache xác suất CNN theo ô |
+| `mark_logits_cache.npz` | Cache logit CNN theo ô (kèm khóa băm) |
 
 Thư mục `models/` chứa mô hình đã huấn luyện. `results/`, `models/` và `data/` không commit (xem `.gitignore`).
 
@@ -239,43 +239,32 @@ Chia train 1750 / val 250 / test 500 theo `group_id` (một phiếu gốc không
 
 ### Kết quả
 
-> Lần chạy gần nhất: 2500 phiếu, seed 42, tập test 500. Tập test đã được dùng nhiều lần để khám phá cấu hình, nên các số dưới đây **không phải bằng chứng nghiệm thu**. Chi tiết: [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
+> Lần chạy gần nhất (sau sửa leakage Val, ranking, calibration, leaf-scale): 2500 phiếu, seed 42, tập test 500. Tập test đã được dùng nhiều lần để khám phá, nên các số dưới đây **không phải bằng chứng nghiệm thu**. Chi tiết: [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
 
 | Mô hình | Accuracy | Macro-F1 | Recall "không hợp lệ" | Precision "không hợp lệ" |
 |---|---|---|---|---|
 | Baseline majority | 0.200 | 0.067 | 0.000 | 0.000 |
-| Baseline Naive Bayes | 0.802 | 0.781 | 0.910 | 0.995 |
-| Baseline kNN (k=5) | 0.916 | 0.914 | 0.948 | 0.977 |
-| C4.5 (đặc trưng thủ công) | 0.916 | 0.912 | 0.935 | 0.997 |
-| **Mô hình lai (CNN theo ô + C4.5)** | **0.896** | **0.889** | **0.943** | **1.000** |
-| CNN toàn ảnh 224×224 (đối chứng, không học) | 0.200 | 0.067 | 0.000 | 0.000 |
+| Baseline Naive Bayes | 0.804 | 0.784 | 0.903 | 0.995 |
+| Baseline kNN (k=5) | 0.920 | 0.917 | 0.943 | 0.987 |
+| C4.5 (đặc trưng thủ công) | 0.906 | 0.901 | 0.928 | 0.992 |
+| **Mô hình lai (CNN theo ô + C4.5)** | **0.926** | **0.923** | **0.958** | **1.000** |
+| CNN toàn ảnh 224×224 (đối chứng, không học) | 0.200 | 0.067 | 1.000* | 0.800* |
 
-- CNN phát hiện dấu theo ô đạt accuracy 1.0 trên tập test (cấp ô).
-- CNN toàn ảnh không học: val_acc cố định 0.20. Chưa điều tra nguyên nhân. Đối chứng này chưa có giá trị.
-- Cấu hình chọn trên OOF Train: `min_leaf=80`, `cf=0.25`, `leaf_min_n=0`, τ_CNN=0.5, τ_C4.5=0.66. Đây là cấu hình xếp hạng cao nhất nhưng **không cấu hình nào trong 192 cấu hình đạt cả ba ràng buộc trên OOF** (OOF: Selective Risk 0.123). Dùng làm mốc, không phải kết quả đạt.
-- Trên Test với cấu hình trên: Invalid Screening Recall 1.000, Automatic Invalid Recall 0.943, Coverage 0.856, Referral Rate 0.144, **Selective Risk 0.068 (vượt ngưỡng 0.02)**. Không đạt nghiệm thu.
-- Hybrid trên Test: accuracy 0.896, Recall "không hợp lệ" 0.943, Precision 1.000. Nhầm lẫn chính: 58/100 `wrong_mark` đúng, 23 `wrong_mark` → `valid` và 19 → `blank`.
-- Demo hash-chain: sửa một block, `verify()` trả `False`. Đây là kết quả đúng (phát hiện sửa đổi). Dòng `chuỗi còn hợp lệ: False` trong log là mong đợi, không phải lỗi chuỗi gốc (chuỗi gốc có `True`).
+\* CNN toàn ảnh dự đoán `blank` cho mọi mẫu. `blank` thuộc nhóm không hợp lệ nên recall 1.0 và precision 0.8 không phản ánh khả năng phân loại.
 
-**Đọc kết quả thận trọng:** trên dữ liệu giả lập, 8 đặc trưng thủ công gần như tách hoàn toàn các lớp, nên C4.5 đơn thuần đã đạt kết quả gần tối đa. Lợi ích của CNN chỉ kiểm chứng được trên ảnh scan thật (nhiễu, bóng, tẩy xóa, chữ ký không đều). Lớp `wrong_mark` là lớp khó nhất; 19 phiếu `wrong_mark` trên tập test rơi vào một lá C4.5 không tách được (xem audit).
+Ngưỡng `PENDING_REVIEW` (chọn trên OOF Train; không cấu hình nào đạt đủ ba ràng buộc trên OOF):
+- Cấu hình chọn: `min_leaf=10`, `cf=0.25`, `leaf_min_n=0`, τ_CNN=0.58, τ_C4.5=0.92.
+- Temperature: T = 23.32 (phương pháp `std_fallback`: OOF phân tách hoàn hảo, 0/8750 ô sai nên NLL không xác định).
+- Trên Test: Invalid Screening Recall 1.000 (cận dưới Clopper–Pearson 95%: 0.9925), Coverage 0.726, Referral Rate 0.274, Selective Risk **0.044** (cận trên 95%: 0.066). **KHÔNG ĐẠT** (Coverage và Selective Risk).
 
-Luật của C4.5 lai (cấu hình chọn ở trên, lần chạy gần nhất). Lá `n=404, lỗi=63` là lá gây lỗi `wrong_mark` → `blank` trên Test:
+CNN phát hiện dấu trên từng ô đạt accuracy 0.9952 trên tập test (cấp ô).
 
-```
-IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob ≤ 0.1807 AND max_box_density ≤ 0.06037 AND left_band_ink ≤ 0.0006498  THEN blank      [n=404, lỗi=63]
-IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob ≤ 0.1807 AND max_box_density ≤ 0.06037 AND left_band_ink > 0.0006498   THEN wrong_mark [n=80,  lỗi=3]
-IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob ≤ 0.1807 AND max_box_density > 0.06037                                  THEN wrong_mark [n=125, lỗi=6]
-IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob > 0.1807 AND cnn_count_marked ≤ 1.5                                      THEN valid      [n=246, lỗi=91]
-IF cnn_count_marked ≤ 3.5 AND cnn_mean_prob > 0.1807 AND cnn_count_marked > 1.5                                      THEN valid      [n=195, lỗi=0]
-IF cnn_count_marked > 3.5 AND mean_box_density ≤ 0.3373                                                              THEN multi_mark [n=326, lỗi=1]
-IF cnn_count_marked > 3.5 AND mean_box_density > 0.3373                                                              THEN erased     [n=374, lỗi=25]
-```
+**Đọc kết quả thận trọng:**
+- CNN toàn ảnh không học được: val_acc cố định 0.20. Đối chứng này chưa có giá trị. Nguyên nhân chưa được kiểm chứng.
+- Lớp khó nhất là `wrong_mark`. Nguyên nhân gốc và kế hoạch cải thiện nằm trong [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
+- Trên dữ liệu giả lập, 8 đặc trưng thủ công gần như tách hoàn toàn các lớp. Lợi ích của CNN chỉ kiểm chứng được trên ảnh scan thật.
 
-### MLOps tối thiểu
-
-- `results/metrics_log.json` và `check_drift()`: so sánh độ chính xác lần chạy mới với lịch sử, cảnh báo nếu giảm hơn 5 điểm.
-- `monitor.psi()`: đo lệch phân phối đặc trưng giữa train và dữ liệu sản xuất. Chưa có dữ liệu sản xuất để chạy thật.
-- `hashchain.json`: 1 block neo mã băm mô hình và manifest dữ liệu, rồi một block cho mỗi phiếu. `verify()` trả về `False` khi một block bị sửa.
+Luật C4.5 của mô hình lai thay đổi theo lần chạy và được in trong log `main.py` (phần `Luật C4.5`), không cố định trong README.
 
 ## 2. Sổ cái blockchain (Hyperledger Fabric)
 
