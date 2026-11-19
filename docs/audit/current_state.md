@@ -18,7 +18,7 @@ Phạm vi: đọc code, chạy lại pipeline AI trên dữ liệu 2500 ảnh, p
 | Hash-chain + demo sửa | `src/hashchain.py` | Chạy được; phát hiện sửa đổi | `validate()` trả `False` sau sửa |
 | Merkle (Python) | `src/merkle.py` | Có test vector khớp Go | unit test |
 | PSI, drift | `src/monitor.py` | Có hàm; chưa có dữ liệu sản xuất | unit test |
-| Chaincode Go | `modules/blockchain-ledger/chaincode/ballot/main.go` | Có hàm; **không biên dịch được trên máy này** (thiếu module fabric-contract-api-go, không có mạng); chưa chạy trên Fabric | không có test Go |
+| Chaincode Go | `modules/blockchain-ledger/chaincode/ballot/main.go` | Biên dịch và `go vet` sạch trong bản sao có replace GitHub; repo gốc cần mạng Go proxy; chưa chạy trên Fabric | không có test Go; xem `chaincode_build_verify.md` |
 | Merkle (Go) | `chaincode/ballot/merkle/` | ✅ `go test ./merkle/`: 3/3 PASS | `baseline_results.md` mục 8 |
 | Triển khai Fabric | `modules/blockchain-ledger/network/deploy.sh` | **Chưa kiểm thử** (script ghi rõ) | — |
 | Dockerfile | `Dockerfile` (gốc) | **Chưa build** | — |

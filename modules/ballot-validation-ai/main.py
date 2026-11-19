@@ -160,7 +160,8 @@ def main():
     target = next(b.index for b in demo.blocks if "ballot_id" in b.data)
     old = demo.blocks[target].data["pred"]
     demo.tamper(target, "pred", "invalid" if old == "valid" else "valid")
-    print(f"[blockchain] Demo sửa kết quả block {target} ({old} → đổi) → chuỗi còn hợp lệ: {demo.verify()}")
+    detected = not demo.verify()                            # kỳ vọng True: sửa phải bị phát hiện
+    print(f"[blockchain] Demo sửa kết quả block {target} ({old} → đổi) → phát hiện sửa: {detected}")
 
     # 8. MLOps
     log_path = os.path.join(results_dir, "metrics_log.json")
