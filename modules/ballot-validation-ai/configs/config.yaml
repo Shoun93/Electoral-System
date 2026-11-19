@@ -35,6 +35,10 @@ mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CN
   augment: true
   folds: 5                   # out-of-fold cho tập train
 
+stray_cnn:                   # CNN phát hiện dấu ngoài ô (wrong_mark), đầu vào max-pool toàn phiếu
+  epochs: 8
+  recall_target: 0.99        # ngưỡng chọn trên OOF Train: bắt ≥99% phiếu có dấu sai
+
 decision:                    # NFR-09 / NFR-10 (BA v15)
   nfr10_target: 0.98         # sàn NFR-10 (không hạ)
   selective_risk_max: 0.02   # giới hạn Selective Risk (đã phê duyệt)

@@ -117,6 +117,29 @@ class TestClopperPearson(unittest.TestCase):
         self.assertLessEqual(cp(0, 149), 0.02)     # BA: 149 mẫu đủ cho 2%
 
 
+class TestStrayFlag(unittest.TestCase):
+    def test_extra_flag_forces_pending(self):
+        import decision
+        p = decision.is_pending([0.99, 0.99], [0.99, 0.99], 0.5, 0.5, extra=[False, True])
+        self.assertEqual(list(p), [False, True])
+
+    def test_stray_threshold_keeps_recall(self):
+        import numpy as np
+        from stray_cnn import stray_threshold
+        p = np.linspace(0, 1, 200)
+        has = np.arange(200) >= 100                 # 100 dương, p tăng dần
+        t = stray_threshold(p, has, recall=0.99)
+        self.assertGreaterEqual((p[has] >= t).mean(), 0.99)
+
+    def test_maxpool_keeps_thin_stroke(self):
+        import numpy as np
+        from stray_cnn import maxpool_input
+        b = np.zeros((850, 1200), np.uint8)
+        b[400, 600] = 1                             # nét 1 px
+        out = maxpool_input(b)
+        self.assertEqual(out.shape, (213, 300))
+        self.assertEqual(out.max(), 1.0)
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -25,10 +25,12 @@ def confidences(p_marks, proba):
     return conf_cnn, conf_c45
 
 
-def is_pending(conf_cnn, conf_c45, tau_cnn, tau_c45, leaf_n=None, leaf_min_n=0):
+def is_pending(conf_cnn, conf_c45, tau_cnn, tau_c45, leaf_n=None, leaf_min_n=0, extra=None):
     p = (np.asarray(conf_cnn) < tau_cnn) | (np.asarray(conf_c45) < tau_c45)
     if leaf_n is not None:
         p = p | (np.asarray(leaf_n) < leaf_min_n)
+    if extra is not None:                       # cờ bổ sung, ví dụ bộ phát hiện dấu ngoài ô
+        p = p | np.asarray(extra, bool)
     return p
 
 
@@ -73,7 +75,7 @@ def rank(r):
     return (0, -viol, r["invalid_screening_recall"], r["coverage"])
 
 
-def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None):
+def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None, extra=None):
     """Lưới (τ_cnn, τ_c45) trên OOF của Train, chọn theo rank()."""
     step = CFG["decision"]["tau_step"] if step is None else step
     grid_cnn = np.round(np.arange(0.5, 1.0 + 1e-9, step), 4)
@@ -81,7 +83,7 @@ def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None
     best = None
     for tc in grid_cnn:
         for td in grid_c45:
-            r = screening_report(y, pred, is_pending(conf_cnn, conf_c45, tc, td, leaf_n, leaf_min_n))
+            r = screening_report(y, pred, is_pending(conf_cnn, conf_c45, tc, td, leaf_n, leaf_min_n, extra))
             if best is None or rank(r) > rank(best[2]):
                 best = (tc, td, r)
     tc, td, r = best
@@ -103,7 +105,7 @@ def oof_c45(H, y, groups, hp, k=None, seed=42):
     return proba, leaf_n
 
 
-def grid_search(H, y, groups, p_marks, grid=None):
+def grid_search(H, y, groups, p_marks, grid=None, extra=None):
     """Lưới min_leaf × cf × leaf_min_n (chọn trên OOF Train). Trả về cấu hình tốt nhất + τ."""
     grid = grid or CFG["decision"]
     best = None
@@ -112,7 +114,7 @@ def grid_search(H, y, groups, p_marks, grid=None):
             proba, leaf_n = oof_c45(H, y, groups, {"min_leaf": min_leaf, "cf": cf})
             cc, cd = confidences(p_marks, proba)
             for lmn in grid["grid_leaf_min_n"]:
-                t = select_tau(y, proba.argmax(1), cc, cd, leaf_n=leaf_n, leaf_min_n=lmn)
+                t = select_tau(y, proba.argmax(1), cc, cd, leaf_n=leaf_n, leaf_min_n=lmn, extra=extra)
                 t.update(min_leaf=min_leaf, cf=cf)
                 print(f"[grid] min_leaf={min_leaf} cf={cf} leaf_min_n={lmn} | "
                       f"τ=({t['tau_cnn']},{t['tau_c45']}) tier={t['tier']} oof={t['oof']}")

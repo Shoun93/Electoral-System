@@ -96,11 +96,37 @@ def main():
     print(f"CNN phát hiện dấu trên ô (test, từng ô): accuracy={mark_acc_te:.4f}")
     metrics["mark_cnn_box_accuracy"] = round(mark_acc_te, 4)
 
+    # 5a. CNN phát hiện dấu ngoài ô (wrong_mark): OOF cho train, ensemble cho val/test; ngưỡng chọn trên OOF Train
+    from stray_cnn import oof_stray, predict_ensemble, stray_threshold, load_inputs
+    from sklearn.metrics import roc_auc_score
+    with open(abspath(CFG["data"]["labels_csv"]), encoding="utf-8") as f:
+        nstray = {r["file"]: int(r["n_strays"]) for r in csv.DictReader(f)}
+    has = np.array([nstray[f] > 0 for f in files])
+    sc_cache = os.path.join(results_dir, "stray_probs_cache_v1.npz")
+    if os.path.exists(sc_cache) and np.array_equal(np.load(sc_cache)["files"], files) \
+            and str(np.load(sc_cache)["source_hash"]) == source_hash():
+        sc = np.load(sc_cache)
+        s_tr, s_va, s_te = sc["tr"], sc["va"], sc["te"]
+    else:
+        XS = load_inputs(files, abspath(CFG["data"]["raw_dir"]))
+        s_tr, s_models = oof_stray(XS[tr], has[tr].astype(int), G[tr])
+        s_va = predict_ensemble(s_models, XS[va])
+        s_te = predict_ensemble(s_models, XS[te])
+        np.savez(sc_cache, tr=s_tr, va=s_va, te=s_te, files=files, source_hash=np.asarray(source_hash()))
+    tau_s = stray_threshold(s_tr, has[tr], CFG["stray_cnn"]["recall_target"])
+    flag_tr, flag_te = s_tr >= tau_s, s_te >= tau_s
+    print(f"[stray] τ_stray={tau_s:.4f} (OOF Train) | AUC OOF={roc_auc_score(has[tr], s_tr):.4f} "
+          f"| Test (chỉ báo cáo): AUC={roc_auc_score(has[te], s_te):.4f}, "
+          f"recall={flag_te[has[te]].mean():.4f}, cờ trên phiếu không có dấu sai={flag_te[~has[te]].mean():.4f}")
+    metrics["stray_cnn"] = {"tau_stray": round(tau_s, 4), "test_auc": round(float(roc_auc_score(has[te], s_te)), 4),
+                            "test_recall": round(float(flag_te[has[te]].mean()), 4),
+                            "test_flag_rate_clean": round(float(flag_te[~has[te]].mean()), 4)}
+
     H_tr = hybrid_features(F[tr], p_marks_tr)
     H_va = hybrid_features(F[va], p_marks_va)
     H_te = hybrid_features(F[te], p_marks_te)
     # 5b. Chọn cấu hình C4.5 + τ + leaf_min_n bằng OOF của Train (không dùng Test)
-    best = grid_search(H_tr, y[tr], G[tr], p_marks_tr)
+    best = grid_search(H_tr, y[tr], G[tr], p_marks_tr, extra=flag_tr)
     print(f"\n[chọn] min_leaf={best['min_leaf']} cf={best['cf']} leaf_min_n={best['leaf_min_n']} "
           f"τ_CNN={best['tau_cnn']} τ_C4.5={best['tau_c45']} | đạt NFR-10 trên OOF: {best['target_met_oof']} "
           f"| OOF: {best['oof']}")
@@ -113,7 +139,7 @@ def main():
     # 5c. Chuyển PENDING_REVIEW trên Test: áp đúng τ và leaf_min_n đã chọn ở OOF
     cc_te, cd_te = confidences(p_marks_te, p_h)
     pend_te = is_pending(cc_te, cd_te, best["tau_cnn"], best["tau_c45"],
-                         leaf_n=hybrid.leaf_size(H_te), leaf_min_n=best["leaf_min_n"])
+                         leaf_n=hybrid.leaf_size(H_te), leaf_min_n=best["leaf_min_n"], extra=flag_te)
     sel = screening_report(y[te], pred_h, pend_te)
     sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
                min_leaf=best["min_leaf"], cf=best["cf"], tier=best["tier"],
