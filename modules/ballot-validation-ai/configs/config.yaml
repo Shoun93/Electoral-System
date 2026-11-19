@@ -42,7 +42,7 @@ stray_cnn:                   # CNN phát hiện dấu ngoài ô (wrong_mark), đ
 decision:                    # NFR-09 / NFR-10 (BA v15)
   nfr10_target: 0.98         # sàn NFR-10 (không hạ)
   selective_risk_max: 0.02   # giới hạn Selective Risk (đã phê duyệt)
-  coverage_min: 0.80         # đề xuất, CHƯA PHÊ DUYỆT — ghi rõ trong kết quả
+  coverage_min: 0.34         # QUYẾT ĐỊNH CỦA NGƯỜI DÙNG (19/11), KHÔNG PHẢI BA DUYỆT; BA v15 đề xuất 0.80
   tau_step: 0.01             # bước lưới τ
   cv_folds: 5                # StratifiedGroupKFold theo group_id
   grid_min_leaf: [3, 5, 10, 20, 40, 80]   # grid C4.5 (chọn bằng OOF Train)
