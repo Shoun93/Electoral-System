@@ -15,6 +15,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from c45 import C45Classifier
 from config import CFG
+from evaluate import clopper_pearson_upper
 
 VALID_IDX = 0   # vị trí "valid" trong CFG["labels"]
 
@@ -34,6 +35,12 @@ def is_pending(conf_cnn, conf_c45, tau_cnn, tau_c45, leaf_n=None, leaf_min_n=0, 
     return p
 
 
+def _cp_or_one(err, n):
+    """CP upper của Selective Risk. n = 0 (không có phiếu tự động) → 1.0 như trước."""
+    cp = clopper_pearson_upper(err, n)
+    return 1.0 if cp is None else cp
+
+
 def screening_report(y, pred, pending):
     """Mục 3.1. pending: True = PENDING_REVIEW. Nhãn dự đoán `pred`, nhãn thật `y` (chỉ số lớp)."""
     y, pred, pending = np.asarray(y), np.asarray(pred), np.asarray(pending, dtype=bool)
@@ -50,17 +57,9 @@ def screening_report(y, pred, pending):
         "coverage": round(float(auto.mean()), 4),
         "referral_rate": round(float(pending.mean()), 4),
         "selective_risk": round(float(wrong_auto.sum()) / n_auto, 4) if n_auto > 0 else 1.0,
-        "selective_risk_cp_upper": round(cp_upper(int(wrong_auto.sum()), n_auto), 4),
+        "selective_risk_cp_upper": round(_cp_or_one(int(wrong_auto.sum()), n_auto), 4),
         "n": int(len(y)), "n_auto": n_auto, "n_pending": int(pending.sum()),
     }
-
-
-def cp_upper(err, n, conf=0.95):
-    """Cận trên Clopper–Pearson một phía của tỷ lệ lỗi trên mẫu tự động."""
-    from scipy.stats import beta
-    if n <= 0 or err >= n:
-        return 1.0
-    return float(beta.ppf(conf, err + 1, n - err))
 
 
 def feasible(r):

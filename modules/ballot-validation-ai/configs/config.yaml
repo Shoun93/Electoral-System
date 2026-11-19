@@ -53,4 +53,5 @@ hashchain:
   difficulty: 3
 
 results_dir: results
+feature_version: feat_v1      # tăng khi đổi feature_c45.py, binarize, to_cnn_input, crop_boxes hoặc hybrid_features
 models_dir: models

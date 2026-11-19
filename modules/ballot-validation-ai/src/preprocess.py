@@ -77,13 +77,28 @@ def source_hash():
     return h.hexdigest()
 
 
-def build_processed(force=False):
-    """Đọc ảnh gốc → đặc trưng C4.5 (ở độ phân giải gốc) + ảnh CNN 224×224 → một file .npz."""
-    out = abspath(CFG["data"]["processed_npz"])
-    src = source_hash()
-    if os.path.exists(out) and not force and str(np.load(out)["source_hash"]) == src:
-        return out                       # chỉ dùng cache khi nguồn (nhãn, ROI, ảnh) không đổi
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+def dataset_components():
+    """Thành phần fingerprint của dataset: dữ liệu nguồn + cấu hình tiền xử lý/đặc trưng + mã + thư viện."""
+    from cache import code_hash, lib_versions
+    return {"source_hash": source_hash(), "feature_version": CFG["feature_version"],
+            "labels": CFG["labels"], "preprocess": CFG["preprocess"], "features": CFG["features"],
+            "code": code_hash(["src/feature_c45.py", "src/preprocess.py"]),
+            "libs": lib_versions(["numpy", "opencv-python", "opencv-python-headless", "scipy"])}
+
+
+def dataset_key():
+    from cache import fingerprint
+    return fingerprint("dataset", dataset_components())[0]
+
+
+def build_processed(log=print):
+    """Trả về dict mảng dataset. Dùng cache đã xác minh fingerprint; không có sidecar khớp → build lại."""
+    from cache import load as cache_load, save as cache_save
+    cache_dir = os.path.dirname(abspath(CFG["data"]["processed_npz"]))
+    comp = dataset_components()
+    hit = cache_load(cache_dir, "dataset", comp, log=log)
+    if hit is not None:
+        return hit
     labels = CFG["labels"]
     with open(abspath(CFG["data"]["labels_csv"]), encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -106,21 +121,18 @@ def build_processed(force=False):
         split.append(r["split"])
         files.append(r["file"])
         groups.append(r["group_id"])
-    np.savez_compressed(out, X=np.stack(X), F=np.asarray(F, dtype=np.float32),
-                        C=np.stack(C), M=np.asarray(M, dtype=np.int64),
-                        y=np.asarray(y), split=np.asarray(split), files=np.asarray(files),
-                        groups=np.asarray(groups),
-                        feature_names=np.asarray(FEATURE_NAMES), source_hash=np.asarray(src))
-    print(f"✅ Tiền xử lý {len(rows)} phiếu → {out}")
-    return out
+    arrays = {"X": np.stack(X), "F": np.asarray(F, dtype=np.float32), "C": np.stack(C),
+              "M": np.asarray(M, dtype=np.int64), "y": np.asarray(y), "split": np.asarray(split),
+              "files": np.asarray(files), "groups": np.asarray(groups),
+              "feature_names": np.asarray(FEATURE_NAMES)}
+    cache_save(cache_dir, "dataset", comp, arrays)
+    log(f"✅ Tiền xử lý {len(rows)} phiếu → cache dataset")
+    return arrays
 
 
 def load_dataset():
-    """Trả về dict: X, F, C, M, y, split, files, groups (đã tạo nếu chưa có hoặc thiếu groups)."""
-    path = build_processed()
-    if "groups" not in np.load(path, allow_pickle=False).files:   # file cũ, tạo lại
-        path = build_processed(force=True)
-    d = np.load(path, allow_pickle=False)
+    """Trả về dict: X, F, C, M, y, split, files, groups."""
+    d = build_processed()
     return {k: d[k] for k in ["X", "F", "C", "M", "y", "split", "files", "groups"]}
 
 
