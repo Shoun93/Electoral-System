@@ -50,8 +50,17 @@ def screening_report(y, pred, pending):
         "coverage": round(float(auto.mean()), 4),
         "referral_rate": round(float(pending.mean()), 4),
         "selective_risk": round(float(wrong_auto.sum()) / n_auto, 4) if n_auto > 0 else 1.0,
+        "selective_risk_cp_upper": round(cp_upper(int(wrong_auto.sum()), n_auto), 4),
         "n": int(len(y)), "n_auto": n_auto, "n_pending": int(pending.sum()),
     }
+
+
+def cp_upper(err, n, conf=0.95):
+    """Cận trên Clopper–Pearson một phía của tỷ lệ lỗi trên mẫu tự động."""
+    from scipy.stats import beta
+    if n <= 0 or err >= n:
+        return 1.0
+    return float(beta.ppf(conf, err + 1, n - err))
 
 
 def feasible(r):
@@ -64,12 +73,16 @@ def feasible(r):
 
 def rank(r):
     """
-    Cấu hình đạt: ưu tiên Recall → Selective Risk thấp → Coverage cao.
-    Cấu hình không đạt: ít vi phạm ràng buộc hơn được xếp trên. Không hạ ngưỡng để tăng Coverage.
+    Tầng 2 (an toàn): đạt ràng buộc điểm VÀ CP upper ≤ selective_risk_max. Trong tầng này:
+      Coverage cao nhất (làm tròn 0.01); nếu gần nhau thì Selective Risk thấp hơn.
+    Tầng 1: đạt ràng buộc điểm nhưng CP upper vượt ngưỡng → xếp sau mọi cấu hình an toàn.
+    Tầng 0: không đạt: ít vi phạm hơn được xếp trên. Không hạ ngưỡng để tăng Coverage.
     """
     d = CFG["decision"]
+    if feasible(r) and r["selective_risk_cp_upper"] <= d["selective_risk_max"]:
+        return (2, round(r["coverage"], 2), -r["selective_risk"], r["coverage"])
     if feasible(r):
-        return (2, r["invalid_screening_recall"], -r["selective_risk"], r["coverage"])
+        return (1, r["invalid_screening_recall"], -r["selective_risk_cp_upper"], r["coverage"])
     viol = (r["invalid_screening_recall"] < d["nfr10_target"]) + (r["coverage"] < d["coverage_min"]) \
         + (r["selective_risk"] > d["selective_risk_max"])
     return (0, -viol, r["invalid_screening_recall"], r["coverage"])
@@ -88,6 +101,7 @@ def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None
                 best = (tc, td, r)
     tc, td, r = best
     ok = feasible(r)
+    ok = ok and r["selective_risk_cp_upper"] <= CFG["decision"]["selective_risk_max"]
     return {"tau_cnn": float(tc), "tau_c45": float(td), "leaf_min_n": leaf_min_n,
             "tier": 2 if ok else 0, "target_met_oof": ok, "oof_target_met": ok, "oof": r}
 

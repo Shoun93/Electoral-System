@@ -28,7 +28,7 @@ from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
 from train_cnn import train_cnn, predict_cnn, oof_mark_probs, predict_marks, predict_marks_ensemble
 from evaluate import summarize
-from decision import confidences, feasible, grid_search, is_pending, screening_report
+from decision import confidences, feasible, grid_search, is_pending, screening_report, rank
 from hashchain import HashChain, sha256_file
 import merkle
 from monitor import check_drift, log_run
@@ -113,28 +113,37 @@ def main():
         s_va = predict_ensemble(s_models, XS[va])
         s_te = predict_ensemble(s_models, XS[te])
         np.savez(sc_cache, tr=s_tr, va=s_va, te=s_te, files=files, source_hash=np.asarray(source_hash()))
-    tau_s = stray_threshold(s_tr, has[tr], CFG["stray_cnn"]["recall_target"])
-    flag_tr, flag_te = s_tr >= tau_s, s_te >= tau_s
-    print(f"[stray] τ_stray={tau_s:.4f} (OOF Train) | AUC OOF={roc_auc_score(has[tr], s_tr):.4f} "
-          f"| Test (chỉ báo cáo): AUC={roc_auc_score(has[te], s_te):.4f}, "
-          f"recall={flag_te[has[te]].mean():.4f}, cờ trên phiếu không có dấu sai={flag_te[~has[te]].mean():.4f}")
-    metrics["stray_cnn"] = {"tau_stray": round(tau_s, 4), "test_auc": round(float(roc_auc_score(has[te], s_te)), 4),
-                            "test_recall": round(float(flag_te[has[te]].mean()), 4),
-                            "test_flag_rate_clean": round(float(flag_te[~has[te]].mean()), 4)}
-
     H_tr = hybrid_features(F[tr], p_marks_tr)
     H_va = hybrid_features(F[va], p_marks_va)
     H_te = hybrid_features(F[te], p_marks_te)
-    # 5b. Chọn cấu hình C4.5 + τ + leaf_min_n bằng OOF của Train (không dùng Test)
-    best = grid_search(H_tr, y[tr], G[tr], p_marks_tr, extra=flag_tr)
-    print(f"\n[chọn] min_leaf={best['min_leaf']} cf={best['cf']} leaf_min_n={best['leaf_min_n']} "
-          f"τ_CNN={best['tau_cnn']} τ_C4.5={best['tau_c45']} | đạt NFR-10 trên OOF: {best['target_met_oof']} "
-          f"| OOF: {best['oof']}")
+    # 5b. Chọn recall_target của cờ dấu sai + cấu hình C4.5 + τ + leaf_min_n: TOÀN BỘ trên OOF Train (không đọc Test)
+    cands = []
+    for rt in CFG["stray_cnn"]["recall_targets"]:
+        tau_s_rt = stray_threshold(s_tr, has[tr], rt)
+        b = grid_search(H_tr, y[tr], G[tr], p_marks_tr, extra=s_tr >= tau_s_rt)
+        b.update(recall_target=rt, tau_stray=tau_s_rt)
+        cands.append(b)
+        o = b["oof"]
+        print(f"[OOF rt={rt}] τ_stray={tau_s_rt:.4f} cờ_phiếu_sạch={(s_tr >= tau_s_rt)[~has[tr]].mean():.4f} "
+              f"coverage={o['coverage']} risk={o['selective_risk']} cp_upper={o['selective_risk_cp_upper']} "
+              f"recall={o['invalid_screening_recall']} | min_leaf={b['min_leaf']} cf={b['cf']} "
+              f"leaf_min_n={b['leaf_min_n']} τ=({b['tau_cnn']},{b['tau_c45']}) an_toàn={b['target_met_oof']}")
+    best = max(cands, key=lambda t: rank(t["oof"]))            # khóa cấu hình từ đây, trước khi đọc Test
+    tau_s = best["tau_stray"]
+    flag_tr, flag_te = s_tr >= tau_s, s_te >= tau_s
+    print(f"\n[chọn] recall_target={best['recall_target']} min_leaf={best['min_leaf']} cf={best['cf']} "
+          f"leaf_min_n={best['leaf_min_n']} τ_CNN={best['tau_cnn']} τ_C4.5={best['tau_c45']} "
+          f"| an toàn trên OOF: {best['target_met_oof']} | OOF: {best['oof']}")
     hybrid = train_c45(H_tr, y[tr], H_va, y[va], feature_names=HYBRID_NAMES, tag="hybrid_c45",
                        hp={"min_leaf": best["min_leaf"], "cf": best["cf"]})
     pred_h = hybrid.predict(H_te)
     p_h = hybrid.predict_proba(H_te)
     metrics["hybrid_cnn_c45"] = summarize("MÔ HÌNH LAI (CNN ô + C4.5)", y[te], pred_h)
+    metrics["stray_cnn"] = {"recall_target": best["recall_target"], "tau_stray": round(tau_s, 4),
+                            "oof_auc": round(float(roc_auc_score(has[tr], s_tr)), 4),
+                            "test_auc": round(float(roc_auc_score(has[te], s_te)), 4),
+                            "test_recall": round(float(flag_te[has[te]].mean()), 4),
+                            "test_flag_rate_clean": round(float(flag_te[~has[te]].mean()), 4)}
 
     # 5c. Chuyển PENDING_REVIEW trên Test: áp đúng τ và leaf_min_n đã chọn ở OOF
     cc_te, cd_te = confidences(p_marks_te, p_h)
@@ -144,6 +153,7 @@ def main():
     sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
                min_leaf=best["min_leaf"], cf=best["cf"], tier=best["tier"],
                target_met_oof=best["target_met_oof"], oof_target_met=best["oof_target_met"])
+    sel["recall_target"] = best["recall_target"]
     sel["accepted_test"] = feasible(sel)
     sel["coverage_min_status"] = "đề xuất, chưa phê duyệt"
     metrics["hybrid_selective"] = sel

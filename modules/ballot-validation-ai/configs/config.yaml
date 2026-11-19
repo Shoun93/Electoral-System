@@ -37,7 +37,7 @@ mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CN
 
 stray_cnn:                   # CNN phát hiện dấu ngoài ô (wrong_mark), đầu vào max-pool toàn phiếu
   epochs: 25
-  recall_target: 0.99        # ngưỡng chọn trên OOF Train: bắt ≥99% phiếu có dấu sai
+  recall_targets: [0.95, 0.97, 0.99]   # lưới ngưỡng cờ dấu sai, chọn trên OOF Train (không dùng Test)
 
 decision:                    # NFR-09 / NFR-10 (BA v15)
   nfr10_target: 0.98         # sàn NFR-10 (không hạ)
