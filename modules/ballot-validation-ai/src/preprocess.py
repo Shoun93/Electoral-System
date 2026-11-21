@@ -108,11 +108,34 @@ def load_dataset():
     return {k: d[k] for k in ["X", "F", "C", "M", "y", "split", "files", "groups"]}
 
 
+def check_group_disjoint(train_groups, val_groups):
+    """D-06: dừng nếu một group_id xuất hiện ở cả Train và Validation."""
+    overlap = set(train_groups) & set(val_groups)
+    if overlap:
+        raise ValueError(f"Group overlap Train/Validation: {len(overlap)} group, ví dụ {sorted(overlap)[:5]}")
+    return len(overlap)
+
+
 def split_train_val(data, seed=42):
-    """Tách validation từ tập train (phân tầng theo nhãn). Tập test giữ nguyên."""
-    from sklearn.model_selection import train_test_split
+    """Tách Validation khỏi Train bằng GroupShuffleSplit theo group_id (D-06).
+    Validation = model-selection validation, KHÔNG phải Independent Test. Tập test giữ nguyên.
+    Trả về indices gốc (ánh xạ 1-1 với data) và meta để ghi vào metrics."""
+    from sklearn.model_selection import GroupShuffleSplit
     tr_idx = np.where(data["split"] == "train")[0]
     te_idx = np.where(data["split"] == "test")[0]
-    tr_idx, va_idx = train_test_split(tr_idx, test_size=CFG["data"]["val_fraction"],
-                                      random_state=seed, stratify=data["y"][tr_idx])
-    return {"train": tr_idx, "val": va_idx, "test": te_idx}
+    groups = np.asarray(data["groups"])
+    if any(not str(g).strip() for g in groups[tr_idx]):
+        raise ValueError("group_id rỗng trong tập Train")
+    a, b = next(GroupShuffleSplit(n_splits=1, test_size=CFG["data"]["val_fraction"],
+                                  random_state=seed).split(tr_idx, groups=groups[tr_idx]))
+    tr_out, va_idx = tr_idx[a], tr_idx[b]
+    overlap = check_group_disjoint(groups[tr_out], groups[va_idx])
+    y = np.asarray(data["y"])
+    meta = {"method": "GroupShuffleSplit", "seed": int(seed),
+            "test_size_groups": CFG["data"]["val_fraction"],
+            "validation_purpose": "model-selection validation (không phải Independent Test)",
+            "n_train": int(len(tr_out)), "n_val": int(len(va_idx)),
+            "n_train_groups": int(len(set(groups[tr_out]))), "n_val_groups": int(len(set(groups[va_idx]))),
+            "group_overlap_train_val": int(overlap), "leakage_check": "PASS",
+            "val_class_counts": {str(c): int(n) for c, n in zip(*np.unique(y[va_idx], return_counts=True))}}
+    return {"train": tr_out, "val": va_idx, "test": te_idx, "meta": meta}
