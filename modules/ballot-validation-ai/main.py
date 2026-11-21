@@ -112,9 +112,10 @@ def run_pipeline(run_id, run_dir, models_dir, cache_dir, results_dir):
     tr, va, te = idx["train"], idx["val"], idx["test"]
     X, F, C, M, y, files, G = data["X"], data["F"], data["C"], data["M"], data["y"], data["files"], data["groups"]
     split_hash = array_sha256(np.concatenate([tr, va, te]))
-    print(f"Phiếu: train={len(tr)} val={len(va)} test={len(te)}")
+    print(f"Phiếu: train={len(tr)} val={len(va)} test={len(te)} | split={idx['meta']['method']} "
+          f"| overlap group={idx['meta']['group_overlap_train_val']}")
 
-    metrics = {}
+    metrics = {"validation_split": idx["meta"]}
 
     # 2. Baseline
     for name, m in train_baselines(F[tr], y[tr]).items():

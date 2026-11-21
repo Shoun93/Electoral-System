@@ -14,6 +14,7 @@ import cache                                                   # noqa: E402
 import manifest as mf                                          # noqa: E402
 from decision import clopper_pearson_upper as cp_decision      # noqa: E402
 from evaluate import clopper_pearson_upper, invalid_to_valid_report  # noqa: E402
+from preprocess import check_group_disjoint, split_train_val  # noqa: E402
 
 LABELS = ["valid", "blank", "erased", "wrong_mark", "multi_mark"]
 
@@ -185,6 +186,60 @@ class TestManifestAndRuns(unittest.TestCase):
         observed_before = bool(reg)
         self.assertTrue(observed_before)
         self.assertFalse(not observed_before)                  # independent = not observed_before → False
+
+
+def _fixture(n_groups=60, n_test_groups=10):
+    """Fixture tổng hợp: mỗi group có đúng 5 mẫu (1/lớp), không dùng dữ liệu thật."""
+    groups, y, split = [], [], []
+    for g in range(n_groups):
+        for label in range(5):
+            groups.append(f"g{g:04d}")
+            y.append(label)
+            split.append("test" if g >= n_groups - n_test_groups else "train")
+    return {"groups": np.array(groups), "y": np.array(y), "split": np.array(split)}
+
+
+class TestGroupSplit(unittest.TestCase):
+    def setUp(self):
+        self.d = _fixture()
+
+    def test_no_group_overlap_and_mapping(self):
+        out = split_train_val(self.d, seed=42)
+        tr, va, te = out["train"], out["val"], out["test"]
+        self.assertEqual(len(set(self.d["groups"][tr]) & set(self.d["groups"][va])), 0)
+        self.assertTrue(set(tr).isdisjoint(va))
+        self.assertTrue(all(self.d["split"][i] == "train" for i in tr))
+        self.assertTrue(all(self.d["split"][i] == "train" for i in va))
+        self.assertTrue(all(self.d["split"][i] == "test" for i in te))
+        self.assertEqual(len(tr) + len(va), int((self.d["split"] == "train").sum()))
+
+    def test_same_seed_same_split(self):
+        a, b = split_train_val(self.d, seed=42), split_train_val(self.d, seed=42)
+        for k in ("train", "val", "test"):
+            np.testing.assert_array_equal(a[k], b[k])
+
+    def test_different_seed_can_differ(self):
+        base = split_train_val(self.d, seed=1)["val"]
+        self.assertTrue(any(not np.array_equal(base, split_train_val(self.d, seed=s)["val"]) for s in range(2, 8)))
+
+    def test_meta_records_method_and_purpose(self):
+        m = split_train_val(self.d, seed=42)["meta"]
+        self.assertEqual(m["method"], "GroupShuffleSplit")
+        self.assertEqual(m["group_overlap_train_val"], 0)
+        self.assertEqual(m["leakage_check"], "PASS")
+        self.assertIn("model-selection validation", m["validation_purpose"])
+        self.assertIn("không phải Independent Test", m["validation_purpose"])
+
+    def test_overlap_is_rejected(self):
+        with self.assertRaises(ValueError):
+            check_group_disjoint(["g0001", "g0002"], ["g0002"])
+
+    def test_empty_group_id_is_rejected(self):
+        d = _fixture()
+        d["groups"] = d["groups"].copy()
+        d["groups"][0] = " "
+        with self.assertRaises(ValueError):
+            split_train_val(d, seed=42)
 
 
 if __name__ == "__main__":
