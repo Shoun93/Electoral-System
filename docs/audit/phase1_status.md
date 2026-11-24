@@ -16,7 +16,9 @@ validation, or completion of later Blockchain, deployment, or MLOps work.
   BLANK semantics are not inferred.
 - Zero denominators are undefined (null), not silently replaced by one or zero.
 - Acceptance and threshold selection fail closed until PM policy approval and
-  separate OOF authorization are recorded.
+  separate OOF authorization are recorded. Legacy flat-OOF grid search is disabled
+  because it reuses selection predictions for reporting; nested group-aware selection
+  is not implemented.
 - CNN probability cache includes data/split/group/label arrays, training config,
   checkpoint checksum, seed, folds, and schema version. Writes are atomic.
 - Observed Test is descriptive only, not a model/threshold selection or acceptance set.
@@ -34,6 +36,7 @@ validation, or completion of later Blockchain, deployment, or MLOps work.
 4. PM-10: Independent Test acceptance remains BLOCKED without independent source
    and governance.
 5. WP-05A: OOF is not run by default; separate explicit PM approval is required.
+   Flat OOF grid selection is disabled; nested group-aware selection remains unimplemented.
 6. Runtime: Python environment must be validated before model training.
 
 ## Commands
