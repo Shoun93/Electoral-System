@@ -104,3 +104,13 @@ class TestCache(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOOFSelectionGate(unittest.TestCase):
+    def test_flat_oof_grid_is_disabled(self):
+        from decision import grid_search
+        with self.assertRaises(PolicyNotApprovedError):
+            grid_search(None, None, None, None)
+
+if __name__ == "__main__":
+    unittest.main()
