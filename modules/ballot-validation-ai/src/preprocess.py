@@ -219,7 +219,14 @@ def split_train_val(data, seed=42):
         raise RuntimeError("Tập Test đã bị thay đổi trong quá trình split")
 
     val_classes = np.unique(y[va_idx])
+    train_classes = np.unique(y[tr_out])
     all_classes = np.unique(y)
+    missing_train_classes = sorted(set(all_classes.tolist()) - set(train_classes.tolist()))
+    if missing_train_classes:
+        raise ValueError(
+            f"Train partition misses classes after group split: {missing_train_classes}. "
+            "Do not auto-reduce or silently change the split; review group/class feasibility."
+        )
     missing_val_classes = sorted(set(all_classes.tolist()) - set(val_classes.tolist()))
     checks = {
         "nonempty_group_ids": True,
@@ -245,7 +252,9 @@ def split_train_val(data, seed=42):
         "group_overlap_val_test": 0,
         "leakage_checks": checks,
         "leakage_check": "PASS" if all(checks.values()) else "FAIL",
+        "train_class_counts": {str(c): int(n) for c, n in zip(*np.unique(y[tr_out], return_counts=True))},
         "val_class_counts": {str(c): int(n) for c, n in zip(*np.unique(y[va_idx], return_counts=True))},
+        "train_missing_classes": missing_train_classes,
         "val_missing_classes": missing_val_classes,
     }
     return {"train": tr_out, "val": va_idx, "test": te_idx, "meta": meta}
