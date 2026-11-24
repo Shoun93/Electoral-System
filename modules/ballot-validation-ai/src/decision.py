@@ -123,9 +123,17 @@ def _approved_acceptance_policy():
         return False
     if d["acceptance_policy_approved"] is not True:
         return False
-    if d["nfr10_target"] is None or d["coverage_min"] is None or d["selective_risk_max"] is None:
+    targets = (d["nfr10_target"], d["coverage_min"], d["selective_risk_max"])
+    if any(not isinstance(value, (int, float)) or not np.isfinite(value) or not 0 <= value <= 1
+           for value in targets):
         return False
-    if d["invalid_labels"] is None:
+    invalid_labels = d["invalid_labels"]
+    if not isinstance(invalid_labels, (list, tuple, set)) or not invalid_labels:
+        return False
+    if any(not isinstance(label, int) or label < 0 or label >= len(CFG["labels"])
+           for label in invalid_labels):
+        return False
+    if VALID_IDX in invalid_labels:
         return False
     return True
 
