@@ -4,6 +4,8 @@ Hệ thống kiểm phiếu bầu cử có trí tuệ nhân tạo, kết hợp s
 
 > Trạng thái: **demo nghiên cứu, chưa đạt nghiệm thu**. Module AI chạy end-to-end trên dữ liệu giả lập. Phần chuyển `PENDING_REVIEW` (nhánh `feat/ba-giai-doan-1-selective`) **chưa đạt** ràng buộc Selective Risk ≤ 0.02. Mã blockchain đã viết nhưng chưa chạy trên Fabric. PBFT chưa làm. Kiểm toán và kế hoạch: [`docs/audit`](docs/audit).
 
+> **Phase 1:** các sửa đổi audit/safeguard đang ở [PR #7](https://github.com/Shoun93/Electoral-System/pull/7), chưa merge vào main. Pipeline AI đang khóa fail-closed cho đến khi các quyết định PM còn treo và nested group-aware OOF được xử lý.
+
 ## Các module
 
 | Module | Thư mục | Trạng thái | Mô tả |
