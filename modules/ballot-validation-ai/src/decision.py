@@ -191,7 +191,7 @@ def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None
             "tier": 2 if ok else 0, "target_met_oof": ok, "oof_target_met": ok, "oof": report}
 
 
-def _validate_group_folds(y, groups, k):
+def _validate_group_folds(y, groups, k, seed=42):
     y = _as_1d("y", y)
     groups = _as_1d("groups", groups)
     if len(y) != len(groups) or len(y) == 0:
@@ -229,12 +229,9 @@ def oof_c45(H, y, groups, hp, k=None, seed=42):
     H, y, groups = np.asarray(H), _as_1d("y", y), _as_1d("groups", groups)
     if H.ndim != 2 or len(H) != len(y) or len(y) != len(groups):
         raise ValueError("H, y and groups must have consistent sample dimensions")
-    splits = _validate_group_folds(y, groups, k)
+    splits = _validate_group_folds(y, groups, k, seed=seed)
     proba = np.zeros((len(y), len(CFG["labels"])), dtype=float)
     leaf_n = np.zeros(len(y), dtype=int)
-    # Use requested seed for the actual fold construction.
-    from sklearn.model_selection import StratifiedGroupKFold
-    splits = list(StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed).split(H, y, groups))
     for fold, (tr_i, va_i) in enumerate(splits):
         if set(groups[tr_i].astype(str)) & set(groups[va_i].astype(str)):
             raise ValueError(f"Group leakage in OOF fold {fold}")
