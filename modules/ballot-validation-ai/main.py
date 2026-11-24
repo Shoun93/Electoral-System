@@ -1,185 +1,154 @@
 """
-PIPELINE END-TO-END
-  1. Sinh / đọc dữ liệu phiếu giả lập (dataset/generate_dataset.py) → tiền xử lý
-  2. Baseline (majority, Naive Bayes, kNN) trên 8 đặc trưng thủ công
-  3. C4.5 chỉ đặc trưng thủ công                       (đối chứng)
-  4. CNN toàn ảnh 224×224                                (đối chứng — xem báo cáo)
-  5. MÔ HÌNH LAI: CNN phát hiện dấu trên từng ô (out-of-fold) → đặc trưng → C4.5 ra quyết định
-  6. Đánh giá trên tập TEST; chọn mô hình KHÔNG dựa trên test
-  7. Ghi kết quả từng phiếu (kèm SHA-256 ảnh) lên hash-chain, neo mã băm mô hình
-  8. Ghi lịch sử và kiểm tra suy giảm (MLOps)
-
-Chạy trong thư mục ballot-validation-ai/:  python main.py
+PIPELINE AI — Phase 1 safeguards.
+Full model/OOF execution is blocked until PM policy approval and separate OOF authorization.
+Observed Test is descriptive only, never an acceptance/selection source.
 """
-import csv
-import json
-import os
-import sys
-
+import csv, hashlib, json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
-
 import numpy as np
 import torch
-
 from config import CFG, abspath
-from preprocess import generate_synthetic_ballots, load_dataset, split_train_val
+from preprocess import load_dataset, split_train_val
+from cache import compute_cache_key, load_mark_prob_cache, save_mark_prob_cache
 from baselines import train_baselines
-from c45 import C45Classifier
-from feature_c45 import FEATURE_NAMES
 from train_c45 import train_c45
 from train_cnn import train_cnn, predict_cnn, train_mark_cnn, oof_mark_probs, predict_marks
 from evaluate import summarize
-from decision import confidences, feasible, grid_search, is_pending, screening_report
+from decision import PolicyNotApprovedError, confidences, feasible, grid_search, is_pending, screening_report
 from hashchain import HashChain, sha256_file
 import merkle
 from monitor import check_drift, log_run
-
-
-def hybrid_features(F, p_marks):
-    """Đặc trưng cho C4.5 của mô hình lai: 8 đặc trưng thủ công + thống kê xác suất CNN từng ô."""
-    thr = 0.5
-    cnn_feats = np.stack([(p_marks > thr).sum(1), p_marks.mean(1), p_marks.max(1)], axis=1)
-    return np.hstack([F, cnn_feats]).astype(np.float64)
-
+from feature_c45 import FEATURE_NAMES
 
 HYBRID_NAMES = FEATURE_NAMES + ["cnn_count_marked", "cnn_mean_prob", "cnn_max_prob"]
 
+def hybrid_features(F, p_marks):
+    p_marks = np.asarray(p_marks)
+    cnn_feats = np.stack([(p_marks > 0.5).sum(1), p_marks.mean(1), p_marks.max(1)], axis=1)
+    return np.hstack([F, cnn_feats]).astype(np.float64)
+
+def _require_pipeline_authorization():
+    decision = CFG.get("decision", {})
+    if decision.get("acceptance_policy_approved") is not True:
+        raise PolicyNotApprovedError("Pipeline bị khóa: PM chưa phê duyệt định nghĩa INVALID và các ngưỡng nghiệm thu.")
+    if decision.get("oof_selection_authorized") is not True:
+        raise PolicyNotApprovedError("Pipeline bị khóa: OOF/model-threshold selection cần PM phê duyệt riêng.")
+
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 def main():
+    _require_pipeline_authorization()
     labels = CFG["labels"]
     results_dir = abspath(CFG["results_dir"])
     os.makedirs(results_dir, exist_ok=True)
+    labels_path = abspath(CFG["data"]["labels_csv"])
+    if not os.path.isfile(labels_path):
+        raise FileNotFoundError(f"Không tìm thấy manifest dữ liệu: {labels_path}. Phase 1 không tự động sinh/thay đổi dataset.")
 
-    # 1. Dữ liệu
-    if not os.path.exists(abspath(CFG["data"]["labels_csv"])):
-        print("Chưa có dữ liệu → sinh bộ phiếu giả lập")
-        generate_synthetic_ballots()
     data = load_dataset()
-    idx = split_train_val(data)
+    idx = split_train_val(data, seed=CFG.get("cache", {}).get("seed", 42))
     tr, va, te = idx["train"], idx["val"], idx["test"]
-    X, F, C, M, y, files, G = data["X"], data["F"], data["C"], data["M"], data["y"], data["files"], data["groups"]
-    print(f"Phiếu: train={len(tr)} val={len(va)} test={len(te)} | split={idx['meta']['method']} "
-          f"| overlap group={idx['meta']['group_overlap_train_val']}")
+    X, F, C, M, y = data["X"], data["F"], data["C"], data["M"], data["y"]
+    files, groups = data["files"], data["groups"]
+    print(f"train={len(tr)} val={len(va)} observed_test={len(te)} | leakage={idx['meta']['leakage_check']}")
+    metrics = {"validation_split": idx["meta"], "test_partition_role": "OBSERVED_TEST_DESCRIPTIVE_ONLY"}
 
-    metrics = {"validation_split": idx["meta"]}
-
-    # 2. Baseline
-    for name, m in train_baselines(F[tr], y[tr]).items():
-        metrics[f"baseline_{name}"] = summarize(f"Baseline {name}", y[te], m.predict(F[te]))
-
-    # 3. C4.5 chỉ đặc trưng thủ công
-    print("\n----- C4.5 (đặc trưng thủ công) -----")
+    for name, model in train_baselines(F[tr], y[tr]).items():
+        metrics[f"baseline_{name}"] = summarize(f"Baseline {name}", y[te], model.predict(F[te]))
     c45_manual = train_c45(F[tr], y[tr], F[va], y[va], save=False)
     metrics["c45_manual"] = summarize("C4.5 (đặc trưng thủ công)", y[te], c45_manual.predict(F[te]))
-
-    # 4. CNN toàn ảnh (đối chứng)
-    print("\n----- CNN toàn ảnh 224×224 (đối chứng) -----")
     cnn_full = train_cnn(X[tr], y[tr], X[va], y[va])
     pred_full, _ = predict_cnn(cnn_full, X[te])
     metrics["cnn_full_image"] = summarize("CNN toàn ảnh", y[te], pred_full)
 
-    # 5. Mô hình lai
-    print("\n----- CNN phát hiện dấu theo ô (out-of-fold) + C4.5 -----")
-    # Cache xác suất CNN theo ô (chỉ phụ thuộc dữ liệu + config, không phụ thuộc lưới C4.5)
-    cache = os.path.join(results_dir, "mark_probs_cache.npz")
+    cache_path = os.path.join(results_dir, "mark_probs_cache.npz")
     mark_model_path = abspath("models/mark_cnn.pt")
-    # Cache chỉ dùng được khi cùng danh sách file VÀ đã có mark_cnn.pt (predict.py cần file này)
-    if os.path.exists(cache) and os.path.exists(mark_model_path) and np.array_equal(np.load(cache)["files"], files):
-        c_ = np.load(cache)
-        p_marks_tr, p_marks_va, p_marks_te = c_["tr"], c_["va"], c_["te"]
-        print("[cache] nạp xác suất CNN theo ô từ", cache)
+    cache_inputs = {
+        "C_train": C[tr], "M_train": M[tr], "groups_train": groups[tr], "labels_train": y[tr],
+        "C_val": C[va], "C_test": C[te], "files": files, "split": data["split"],
+    }
+    cache_cfg = dict(CFG["mark_cnn"])
+    seed = int(CFG.get("cache", {}).get("seed", 42))
+    folds = int(CFG["mark_cnn"].get("folds", 5))
+    model_hash = _file_sha256(mark_model_path) if os.path.isfile(mark_model_path) else None
+    expected_rows = {"tr": len(tr), "va": len(va), "te": len(te)}
+    key = compute_cache_key(cache_inputs, cache_cfg, model_hash, seed=seed, folds=folds)
+    cached = load_mark_prob_cache(cache_path, key, expected_rows) if model_hash else None
+
+    if cached is not None:
+        p_marks_tr, p_marks_va, p_marks_te = cached["tr"], cached["va"], cached["te"]
+        print("[cache] hit: data/config/checkpoint checksums match")
     else:
-        p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
-        mark_model = train_mark_cnn(C[tr], M[tr])
+        p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=groups[tr], strat=y[tr], k=folds, seed=seed)
+        mark_model = train_mark_cnn(C[tr], M[tr], cfg=cache_cfg)
         os.makedirs(os.path.dirname(mark_model_path), exist_ok=True)
-        torch.save(mark_model.state_dict(), mark_model_path)                   # để predict.py dùng
-        print("✅ Đã lưu CNN theo ô →", mark_model_path)
+        torch.save(mark_model.state_dict(), mark_model_path)
         p_marks_va = predict_marks(mark_model, C[va])
         p_marks_te = predict_marks(mark_model, C[te])
-        np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, files=files)
-    mark_acc_te = float(((p_marks_te > 0.5).astype(int) == M[te]).mean())
-    print(f"CNN phát hiện dấu trên ô (test, từng ô): accuracy={mark_acc_te:.4f}")
-    metrics["mark_cnn_box_accuracy"] = round(mark_acc_te, 4)
+        model_hash = _file_sha256(mark_model_path)
+        key = compute_cache_key(cache_inputs, cache_cfg, model_hash, seed=seed, folds=folds)
+        save_mark_prob_cache(cache_path, key, p_marks_tr, p_marks_va, p_marks_te)
 
-    H_tr = hybrid_features(F[tr], p_marks_tr)
-    H_va = hybrid_features(F[va], p_marks_va)
-    H_te = hybrid_features(F[te], p_marks_te)
-    # 5b. Chọn cấu hình C4.5 + τ + leaf_min_n bằng OOF của Train (không dùng Test)
-    best = grid_search(H_tr, y[tr], G[tr], p_marks_tr)
-    print(f"\n[chọn] min_leaf={best['min_leaf']} cf={best['cf']} leaf_min_n={best['leaf_min_n']} "
-          f"τ_CNN={best['tau_cnn']} τ_C4.5={best['tau_c45']} | đạt NFR-10 trên OOF: {best['target_met_oof']} "
-          f"| OOF: {best['oof']}")
-    hybrid = train_c45(H_tr, y[tr], H_va, y[va], feature_names=HYBRID_NAMES, tag="hybrid_c45",
-                       hp={"min_leaf": best["min_leaf"], "cf": best["cf"]})
-    pred_h = hybrid.predict(H_te)
-    p_h = hybrid.predict_proba(H_te)
-    metrics["hybrid_cnn_c45"] = summarize("MÔ HÌNH LAI (CNN ô + C4.5)", y[te], pred_h)
+    metrics["mark_cnn_box_accuracy_observed_test"] = round(float(((p_marks_te > 0.5).astype(int) == M[te]).mean()), 4)
+    def make_hybrid(F_part, p_part):
+        feats = np.stack([(p_part > 0.5).sum(1), p_part.mean(1), p_part.max(1)], axis=1)
+        return np.hstack([F_part, feats]).astype(np.float64)
+    H_tr, H_va, H_te = make_hybrid(F[tr], p_marks_tr), make_hybrid(F[va], p_marks_va), make_hybrid(F[te], p_marks_te)
 
-    # 5c. Chuyển PENDING_REVIEW trên Test: áp đúng τ và leaf_min_n đã chọn ở OOF
+    best = grid_search(H_tr, y[tr], groups[tr], p_marks_tr)
+    hybrid = train_c45(H_tr, y[tr], H_va, y[va], feature_names=HYBRID_NAMES,
+                       tag="hybrid_c45", hp={"min_leaf": best["min_leaf"], "cf": best["cf"]})
+    pred_h, p_h = hybrid.predict(H_te), hybrid.predict_proba(H_te)
+    metrics["hybrid_cnn_c45_observed_test"] = summarize("MÔ HÌNH LAI — Observed Test", y[te], pred_h)
     cc_te, cd_te = confidences(p_marks_te, p_h)
     pend_te = is_pending(cc_te, cd_te, best["tau_cnn"], best["tau_c45"],
                          leaf_n=hybrid.leaf_size(H_te), leaf_min_n=best["leaf_min_n"])
-    sel = screening_report(y[te], pred_h, pend_te)
+    sel = screening_report(y[te], pred_h, pend_te, invalid_labels=CFG["decision"]["invalid_labels"])
     sel.update(tau_cnn=best["tau_cnn"], tau_c45=best["tau_c45"], leaf_min_n=best["leaf_min_n"],
-               min_leaf=best["min_leaf"], cf=best["cf"], tier=best["tier"],
-               target_met_oof=best["target_met_oof"], oof_target_met=best["oof_target_met"])
-    sel["accepted_test"] = feasible(sel)
-    sel["coverage_min_status"] = "đề xuất, chưa phê duyệt"
-    metrics["hybrid_selective"] = sel
-    print(f"[nghiệm thu Test] {'ĐẠT' if sel['accepted_test'] else 'KHÔNG ĐẠT'} "
-          f"(Recall≥{CFG['decision']['nfr10_target']}, Coverage≥{CFG['decision']['coverage_min']} [chưa phê duyệt], "
-          f"Selective Risk≤{CFG['decision']['selective_risk_max']}) | {sel}")
+               min_leaf=best["min_leaf"], cf=best["cf"], threshold_source="OOF_TRAIN_ONLY",
+               evaluation_partition="OBSERVED_TEST_DESCRIPTIVE_ONLY", acceptance_status="NOT_AN_ACCEPTANCE_RESULT")
+    sel["acceptance_feasible"] = feasible(sel)
+    metrics["hybrid_selective_observed_test"] = sel
+    print(f"[Observed Test — descriptive only] {sel}")
 
-    # 6. Ghi kết quả chi tiết từng phiếu
-    with open(os.path.join(results_dir, "predictions.csv"), "w", newline="", encoding="utf-8") as f:
-        wr = csv.writer(f)
-        wr.writerow(["file", "true", "pred", "confidence", "status"])
-        for k, i in enumerate(te):
+    with open(os.path.join(results_dir, "predictions.csv"), "w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["file", "true", "pred", "confidence", "status", "partition_role"])
+        for k, index in enumerate(te):
             status = "PENDING_REVIEW" if pend_te[k] else "AUTO_CLASSIFIED"
-            wr.writerow([files[i], labels[y[i]], labels[pred_h[k]], round(float(p_h[k].max()), 4), status])
+            writer.writerow([files[index], labels[y[index]], labels[pred_h[k]], round(float(p_h[k].max()), 4), status, "OBSERVED_TEST"])
 
-    # 7. Blockchain: neo mã băm mô hình + manifest, rồi ghi từng phiếu
     model_dir = abspath(CFG["models_dir"])
     chain = HashChain(difficulty=CFG["hashchain"]["difficulty"])
-    chain.add_record({"type": "model_anchor",
-                      "hybrid_c45_sha256": sha256_file(os.path.join(model_dir, "hybrid_c45.joblib")),
-                      "manifest_sha256": sha256_file(abspath(CFG["data"]["labels_csv"]))})
+    chain.add_record({"type": "model_anchor", "hybrid_c45_sha256": sha256_file(os.path.join(model_dir, "hybrid_c45.joblib")),
+                      "manifest_sha256": sha256_file(labels_path)})
     raw_dir = abspath(CFG["data"]["raw_dir"])
-    pred_label = [("PENDING_REVIEW" if pend_te[k] else labels[pred_h[k]]) for k in range(len(te))]
-    for k, i in enumerate(te):
-        chain.add_ballot(ballot_id=files[i], pred=pred_label[k], conf=p_h[k].max(),
-                         image_sha256=sha256_file(os.path.join(raw_dir, files[i])))
-    # Lô phiếu cho sổ cái Fabric: gốc Merkle để chaincode CommitBatch / VerifyBatch
-    leaves = [merkle.leaf_hash(files[i], pred_label[k], p_h[k].max(),
-                               sha256_file(os.path.join(raw_dir, files[i])))
-              for k, i in enumerate(te)]
-    batch = {"batch_id": "test-" + str(len(te)), "root": merkle.root(leaves), "count": len(leaves), "leaves": leaves}
-    with open(os.path.join(results_dir, "fabric_batch.json"), "w", encoding="utf-8") as f:
-        json.dump(batch, f, ensure_ascii=False, indent=1)
-
+    pred_label = ["PENDING_REVIEW" if pend_te[k] else labels[pred_h[k]] for k in range(len(te))]
+    for k, index in enumerate(te):
+        chain.add_ballot(ballot_id=files[index], pred=pred_label[k], conf=p_h[k].max(),
+                         image_sha256=sha256_file(os.path.join(raw_dir, files[index])))
+    leaves = [merkle.leaf_hash(files[index], pred_label[k], p_h[k].max(), sha256_file(os.path.join(raw_dir, files[index])))
+              for k, index in enumerate(te)]
+    batch = {"batch_id": "observed-test-" + str(len(te)), "root": merkle.root(leaves), "count": len(leaves), "leaves": leaves}
+    with open(os.path.join(results_dir, "fabric_batch.json"), "w", encoding="utf-8") as stream:
+        json.dump(batch, stream, ensure_ascii=False, indent=1)
     chain_path = os.path.join(results_dir, "hashchain.json")
     chain.save(chain_path)
-    print(f"\n[blockchain] {len(chain.blocks)} block | chuỗi hợp lệ: {chain.verify()} → {chain_path}")
+    print(f"[blockchain] {len(chain.blocks)} block | valid={chain.verify()} → {chain_path}")
 
-    demo = HashChain.load(chain_path)                       # kiểm chứng: sửa một phiếu trong bản sao
-    target = next(b.index for b in demo.blocks if "ballot_id" in b.data)
-    old = demo.blocks[target].data["pred"]
-    demo.tamper(target, "pred", "invalid" if old == "valid" else "valid")
-    print(f"[blockchain] Demo sửa kết quả block {target} ({old} → đổi) → chuỗi còn hợp lệ: {demo.verify()}")
-
-    # 8. MLOps
     log_path = os.path.join(results_dir, "metrics_log.json")
-    log_run({"c45_manual_acc": metrics["c45_manual"]["accuracy"],
-             "cnn_full_acc": metrics["cnn_full_image"]["accuracy"],
-             "hybrid_acc": metrics["hybrid_cnn_c45"]["accuracy"],
-             "hybrid_screening_recall": sel["invalid_screening_recall"],
-             "hybrid_coverage": sel["coverage"]}, log_path)
-    check_drift(log_path, key="hybrid_acc")
-
-    with open(os.path.join(results_dir, "metrics.json"), "w", encoding="utf-8") as f:
-        json.dump(metrics, f, ensure_ascii=False, indent=1)
-    print("\n✅ PIPELINE HOÀN TẤT. Xem results/ và models/")
-
+    log_run({"c45_manual_acc": metrics["c45_manual"]["accuracy"], "cnn_full_acc": metrics["cnn_full_image"]["accuracy"],
+             "hybrid_acc_observed_test": metrics["hybrid_cnn_c45_observed_test"]["accuracy"],
+             "coverage_observed_test": sel["coverage"]}, log_path)
+    check_drift(log_path, key="hybrid_acc_observed_test")
+    with open(os.path.join(results_dir, "metrics.json"), "w", encoding="utf-8") as stream:
+        json.dump(metrics, stream, ensure_ascii=False, indent=1)
+    print("PIPELINE HOÀN TẤT. Observed Test chỉ có giá trị mô tả; không phải Independent Test.")
 
 if __name__ == "__main__":
     main()
