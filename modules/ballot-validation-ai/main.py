@@ -33,6 +33,8 @@ def _require_pipeline_authorization():
         raise PolicyNotApprovedError("Pipeline bị khóa: PM chưa phê duyệt định nghĩa INVALID và các ngưỡng nghiệm thu.")
     if decision.get("oof_selection_authorized") is not True:
         raise PolicyNotApprovedError("Pipeline bị khóa: OOF/model-threshold selection cần PM phê duyệt riêng.")
+    if decision.get("nested_oof_selection_implemented") is not True:
+        raise PolicyNotApprovedError("Pipeline bị khóa: nested group-aware OOF chưa được triển khai; flat OOF selection bị cấm.")
 
 def _file_sha256(path):
     digest = hashlib.sha256()
