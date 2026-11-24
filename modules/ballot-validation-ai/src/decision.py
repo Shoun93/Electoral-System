@@ -202,7 +202,7 @@ def _validate_group_folds(y, groups, k, seed=42):
     if not isinstance(k, int) or k < 2 or len(unique_groups) < k:
         raise ValueError(f"Need at least {k} distinct groups for {k}-fold OOF; found {len(unique_groups)}")
     # Validate actual generated folds rather than assuming n_groups >= k*k.
-    splitter = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=42)
+    splitter = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed)
     try:
         splits = list(splitter.split(np.zeros(len(y)), y, groups.astype(str)))
     except ValueError as exc:
