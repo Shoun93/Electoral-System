@@ -43,8 +43,10 @@ decision:
   nfr10_target: null
   coverage_min: null
   selective_risk_max: 0.02
-  # OOF execution requires a separate explicit PM authorization.
+  # OOF execution requires separate explicit PM authorization.
   oof_selection_authorized: false
+  # Flat OOF selection is selection-biased; nested group-aware protocol is not implemented.
+  nested_oof_selection_implemented: false
   tau_step: 0.01
   cv_folds: 5
   grid_min_leaf: [3, 5, 10, 20, 40, 80]
