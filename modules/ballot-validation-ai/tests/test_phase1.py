@@ -102,9 +102,6 @@ class TestCache(unittest.TestCase):
             with open(path,"wb") as f: f.write(b"not a zip")
             self.assertIsNone(load_mark_prob_cache(path,"key",{"tr":1,"va":1,"te":1}))
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestOOFSelectionGate(unittest.TestCase):
     def test_flat_oof_grid_is_disabled(self):
