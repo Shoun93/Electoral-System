@@ -1,4 +1,4 @@
-# Cấu hình chung của pipeline. Đường dẫn tương đối với thư mục module (ballot-validation-ai/).
+# Cấu hình chung của pipeline. Đường dẫn tương đối với thư mục module.
 labels: [valid, blank, erased, wrong_mark, multi_mark]
 
 data:
@@ -6,44 +6,54 @@ data:
   labels_csv: data/labels/all.csv
   boxes_json: data/labels/boxes.json
   processed_npz: data/processed/dataset.npz
-  val_fraction: 0.125        # lấy 12.5% của tập train làm validation (=10% tổng, tập test giữ nguyên 20%)
+  val_fraction: 0.125
 
 preprocess:
-  img_size: 224              # kích thước đầu vào CNN
+  img_size: 224
   clahe_clip: 2.0
 
-features:                    # trích 8 đặc trưng cấu trúc (xem src/feature_c45.py)
-  inner_margin: 5            # thu nhỏ ô vào trong bao nhiêu px để bỏ viền ô
-  box_ink_threshold: 0.15    # ô được coi là "có dấu" nếu mật độ mực > 15%
+features:
+  inner_margin: 5
+  box_ink_threshold: 0.15
 
 c45:
   max_depth: 6
-  min_leaf: 5                # số mẫu tối thiểu mỗi nhánh
-  cf: 0.25                   # độ tin cậy cho pessimistic pruning (chuẩn C4.5)
+  min_leaf: 5
+  cf: 0.25
 
-cnn:                         # CNN toàn ảnh 224×224 — đối chứng (xem báo cáo)
+cnn:
   epochs: 15
   batch_size: 32
   lr: 0.001
-  augment: true              # xoay ±3°, dịch ±8 px, đổi sáng — chỉ áp dụng khi train
+  augment: true
   save_path: models/cnn_best.pt
 
-mark_cnn:                    # CNN phát hiện dấu trên từng ô (nhánh CNN của mô hình lai)
+mark_cnn:
   epochs: 25
   batch_size: 64
   lr: 0.001
   augment: true
-  folds: 5                   # out-of-fold cho tập train
+  folds: 5
+  seed: 42
 
-decision:                    # NFR-09 / NFR-10 (BA v15)
-  nfr10_target: 0.98         # sàn NFR-10 (không hạ)
-  selective_risk_max: 0.02   # giới hạn Selective Risk (đã phê duyệt)
-  coverage_min: 0.80         # đề xuất, CHƯA PHÊ DUYỆT — ghi rõ trong kết quả
-  tau_step: 0.01             # bước lưới τ
-  cv_folds: 5                # StratifiedGroupKFold theo group_id
-  grid_min_leaf: [3, 5, 10, 20, 40, 80]   # grid C4.5 (chọn bằng OOF Train)
+decision:
+  # PM policy not yet reconciled: no INVALID label set or acceptance threshold is assumed.
+  acceptance_policy_approved: false
+  invalid_labels: null
+  nfr10_target: null
+  coverage_min: null
+  selective_risk_max: 0.02
+  # OOF execution requires a separate explicit PM authorization.
+  oof_selection_authorized: false
+  tau_step: 0.01
+  cv_folds: 5
+  grid_min_leaf: [3, 5, 10, 20, 40, 80]
   grid_cf: [0.25, 0.1, 0.05, 0.01]
-  grid_leaf_min_n: [0, 10, 20, 40, 60, 100, 150, 200]   # lá có < n mẫu train → PENDING_REVIEW
+  grid_leaf_min_n: [0, 10, 20, 40, 60, 100, 150, 200]
+
+cache:
+  schema_version: 2
+  seed: 42
 
 hashchain:
   difficulty: 3
