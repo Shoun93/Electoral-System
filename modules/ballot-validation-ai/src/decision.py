@@ -248,7 +248,15 @@ def oof_c45(H, y, groups, hp, k=None, seed=42):
 
 
 def grid_search(H, y, groups, p_marks, grid=None):
-    """Grid selection is blocked until PM approves the policy and separately authorizes OOF."""
+    """Legacy flat-OOF selection is intentionally disabled.
+
+    Reusing the same OOF predictions to tune hyperparameters/thresholds and report
+    performance is selection-biased. A nested group-aware selection protocol must
+    be implemented and separately approved before this function can be enabled.
+    """
+    raise PolicyNotApprovedError(
+        "Flat OOF grid search is disabled: nested group-aware selection is not implemented/approved."
+    )
     _require_oof_authorized()
     grid = grid or CFG["decision"]
     best = None
