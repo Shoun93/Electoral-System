@@ -25,6 +25,14 @@ validation, or completion of later Blockchain, deployment, or MLOps work.
 - Regression tests cover leakage, malformed inputs, referral metrics, zero
   denominators, policy gates, and cache invalidation.
 
+- Invalid → Valid Auto (R1, R2, Clopper–Pearson one-sided 95%) requires explicit invalid labels.
+  Ground truth is the morphological label, not legal_label: descriptive only.
+- Out-of-box stray-mark CNN only adds a PENDING_REVIEW flag. Its threshold grid is part of the
+  blocked selection step. NOT RUN on real data in this code.
+- Each run writes to results/runs/<run_id>/ with a manifest; Observed Test reads are registered
+  and never marked independent. predict.py loads models and thresholds from the latest completed run.
+- Wiring main.py to predict.py is tested with stubbed training/OOF only.
+
 ## Decisions still blocking final acceptance
 
 1. PM-03: approve INVALID label semantics. BLANK remains unresolved; do not

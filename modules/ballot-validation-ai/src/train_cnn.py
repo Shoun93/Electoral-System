@@ -174,13 +174,7 @@ def predict_marks(model, C, batch_size=256):
     return np.concatenate(out).reshape(n, k)
 
 
-def train_mark_cnn(C_tr, M_tr, cfg=None):
-    hp = dict(CFG["mark_cnn"], **(cfg or {}))
-    model = _fit_mark_cnn(C_tr.reshape(-1, *C_tr.shape[2:]), M_tr.reshape(-1), hp)
-    return model
-
-
-def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None):
+def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None, return_models=False):
     """
     Out-of-fold: mỗi phiếu train được dự đoán bởi mô hình KHÔNG thấy phiếu đó.
     Nhờ vậy C4.5 học trên xác suất CNN "thật" chứ không phải xác suất đã học thuộc.
@@ -193,7 +187,14 @@ def oof_mark_probs(C_tr, M_tr, cfg=None, k=5, seed=42, groups=None, strat=None):
         splits = KFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr)
     else:
         splits = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed).split(C_tr, strat, groups)
+    models = []
     for tr_i, te_i in splits:
         m = _fit_mark_cnn(C_tr[tr_i].reshape(-1, *C_tr.shape[2:]), M_tr[tr_i].reshape(-1), hp, seed)
         probs[te_i] = predict_marks(m, C_tr[te_i])
-    return probs
+        models.append(m)
+    return (probs, models) if return_models else probs
+
+
+def predict_marks_ensemble(models, C):
+    """Trung bình xác suất của các mô hình fold: cùng phân phối với OOF của train (tránh lệch khi suy luận)."""
+    return np.mean([predict_marks(m, C) for m in models], axis=0)

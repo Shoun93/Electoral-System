@@ -4,7 +4,7 @@ Module nghiên cứu phân loại phiếu bầu bằng CNN phát hiện dấu th
 kèm đánh giá selective classification và hash-chain cục bộ.
 
 > **Trạng thái:** đã có Phase 1 safeguards; pipeline huấn luyện đang khóa (mục 4),
-> nên `predict.py` chỉ chạy được khi đã có sẵn mô hình và `results/metrics.json`. Đây là demo nghiên cứu trên dữ liệu giả lập; không phải hệ thống kiểm phiếu
+> nên `predict.py` chỉ chạy được khi đã có một run hoàn tất trong `results/runs/`. Đây là demo nghiên cứu trên dữ liệu giả lập; không phải hệ thống kiểm phiếu
 > đã được nghiệm thu. Observed Test đã được sử dụng trong quá trình phát triển,
 > chỉ được báo cáo mô tả, không dùng để chọn mô hình/ngưỡng hoặc nghiệm thu.
 > Independent Test acceptance đang BLOCKED.
@@ -15,7 +15,10 @@ kèm đánh giá selective classification và hash-chain cục bộ.
   kiểm tra group leakage giữa Train/Validation/Test.
 - src/feature_c45.py, src/c45.py: đặc trưng cấu trúc và bộ phân loại C4.5.
 - src/train_cnn.py: CNN phát hiện dấu theo ô và CNN toàn ảnh đối chứng.
+- src/stray_cnn.py: CNN phát hiện dấu ngoài ô, chỉ làm cờ PENDING_REVIEW.
 - src/decision.py: confidence, PENDING_REVIEW và các chỉ số selective.
+- src/evaluate.py: báo cáo phân lớp, cận trên Clopper–Pearson, Invalid → Valid Auto.
+- src/manifest.py: thư mục run bất biến, manifest, sổ đăng ký Test.
 - src/cache.py: cache xác suất CNN theo checksum dữ liệu, cấu hình, checkpoint,
   seed, folds và schema; ghi cache atomic.
 - src/hashchain.py, src/merkle.py: hash-chain cục bộ và Merkle batch.
@@ -41,7 +44,8 @@ Từ thư mục module:
 
     python -m unittest discover -s tests -v
 
-Bộ test kiểm tra logic split, group leakage, metric, policy gate và cache.
+Bộ test kiểm tra logic split, group leakage, metric, policy gate, cache, manifest và nối dây
+main.py → predict.py (huấn luyện/OOF là hàm giả).
 Workflow GitHub Actions cài các dependency kiểm thử tối thiểu và chạy lệnh này
 trên pull request.
 
@@ -58,6 +62,9 @@ Lệnh python main.py hiện **fail-closed có chủ đích**. Nó chỉ chạy 
 
 Chưa đáp ứng các điều kiện trên thì không chạy training, OOF, inference hay
 đánh giá trên Observed Test. Module không tự động sinh hoặc thay đổi dataset.
+
+Invalid → Valid Auto trong metrics.json là `BLOCKED_POLICY_NOT_APPROVED` khi chưa có nhãn INVALID;
+khi có, nhãn đối chiếu vẫn là nhãn hình thái, không phải `legal_label`.
 
 ## 5. Ngoài phạm vi Phase 1
 

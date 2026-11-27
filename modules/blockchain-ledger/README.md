@@ -9,12 +9,12 @@ collection riêng cho dữ liệu nhạy cảm và gốc Merkle cho từng lô.
 |---|---|---|
 | Cây Merkle (Go, thư viện chuẩn) | `chaincode/ballot/merkle/` | ✅ Đã kiểm thử: `go test ./merkle/` |
 | Cây Merkle (Python) | `modules/ballot-validation-ai/src/merkle.py` | ✅ Cùng vector với Go |
-| Chaincode (MSP, ghi một lần, private data, verify) | `chaincode/ballot/main.go` | ⚠️ Chỉ kiểm tra cú pháp. Chưa biên dịch với thư viện Fabric, chưa chạy |
+| Chaincode (MSP, ghi một lần, private data, verify) | `chaincode/ballot/main.go` | ⚠️ `go vet`, `go test` với stub giả trong CI. Chưa có kiểm thử tự động trên mạng Fabric |
 | Collection riêng | `chaincode/ballot/collections.json` | ⚠️ Chưa triển khai |
 | Triển khai mạng | `network/deploy.sh` | ⚠️ Chưa chạy |
 | Đồng thuận PBFT (SmartBFT) | chưa có | ❌ Chưa làm. Cần cấu hình orderer BFT theo phiên bản Fabric đang dùng |
 
-Môi trường phát triển không có Docker và không tải được thư viện Fabric, nên các mục ⚠️ chưa được chạy thật.
+Các mục ⚠️ chưa được kiểm chứng trên mạng Fabric bằng mã hiện tại.
 
 ## Thiết kế
 
@@ -28,19 +28,18 @@ Môi trường phát triển không có Docker và không tải được thư vi
 - **Endorse `PutTallyPrivate`:** client chỉ gửi giao dịch tới peer Org2 và Org3. Peer endorse nhận transient map,
   nên gửi tới Org1 sẽ làm lộ `serial`. `requiredPeerCount: 1` buộc phát private data tới ít nhất một peer
   thành viên khác trước khi endorse (chưa kiểm thử trên mạng thật).
-- **Merkle:** pipeline tính gốc Merkle cho lô phiếu (`results/fabric_batch.json`), `CommitBatch` ghi gốc lên sổ cái,
+- **Merkle:** pipeline tính gốc Merkle cho lô phiếu (`results/runs/<run_id>/fabric_batch.json`), `CommitBatch` ghi gốc lên sổ cái,
   `VerifyBatch` tính lại từ danh sách lá và so sánh.
 
 ## Chạy (khi có môi trường Docker)
 
 ```bash
-cd modules/ballot-validation-ai && python main.py         # tạo results/fabric_batch.json
-cd ../blockchain-ledger/chaincode/ballot && GOPROXY=... go test ./merkle/    # kiểm thử Merkle
+cd modules/ballot-validation-ai && python main.py         # đang khóa; khi mở khóa tạo results/runs/<run_id>/fabric_batch.json
+cd ../blockchain-ledger/chaincode/ballot && go test ./...    # kiểm thử chaincode và Merkle
 FABRIC_SAMPLES=~/fabric-samples ../../network/deploy.sh    # cần mạng 3 tổ chức đã lên
 ```
 
-Trước khi dùng thật, hãy biên dịch chaincode với `go mod tidy` (cần `fabric-contract-api-go`) và
-kiểm tra lại đường dẫn trong `deploy.sh` theo phiên bản fabric-samples.
+Trước khi dùng thật, hãy kiểm tra lại đường dẫn trong `deploy.sh` theo phiên bản fabric-samples.
 
 ## Chạy trên Docker
 

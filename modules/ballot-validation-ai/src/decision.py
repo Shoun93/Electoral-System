@@ -8,6 +8,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from c45 import C45Classifier
 from config import CFG
+from evaluate import clopper_pearson_upper
 
 VALID_IDX = 0
 
@@ -37,7 +38,7 @@ def confidences(p_marks, proba):
     return np.maximum(p_marks, 1.0 - p_marks).min(axis=1), proba.max(axis=1)
 
 
-def is_pending(conf_cnn, conf_c45, tau_cnn, tau_c45, leaf_n=None, leaf_min_n=0):
+def is_pending(conf_cnn, conf_c45, tau_cnn, tau_c45, leaf_n=None, leaf_min_n=0, extra=None):
     cc = _as_1d("conf_cnn", conf_cnn, float)
     cd = _as_1d("conf_c45", conf_c45, float)
     if len(cc) != len(cd) or not np.isfinite(cc).all() or not np.isfinite(cd).all():
@@ -52,6 +53,11 @@ def is_pending(conf_cnn, conf_c45, tau_cnn, tau_c45, leaf_n=None, leaf_min_n=0):
         if leaf_min_n < 0:
             raise ValueError("leaf_min_n must be non-negative")
         pending |= leaves < leaf_min_n
+    if extra is not None:                       # cờ bổ sung, ví dụ bộ phát hiện dấu ngoài ô
+        flags = _as_1d("extra", extra, bool)
+        if len(flags) != len(cc):
+            raise ValueError("extra must match confidence length")
+        pending |= flags
     return pending
 
 
@@ -78,6 +84,8 @@ def screening_report(y, pred, pending, invalid_labels=None, valid_label=VALID_ID
         "coverage": round(float(auto.mean()), 4),
         "referral_rate": round(float(pending.mean()), 4),
         "selective_risk": round(float(wrong_auto.sum()) / n_auto, 4) if n_auto else None,
+        "selective_risk_cp_upper": (round(clopper_pearson_upper(int(wrong_auto.sum()), n_auto), 4)
+                                    if n_auto else None),
         "n": int(len(y)),
         "n_auto": n_auto,
         "n_pending": int(pending.sum()),
@@ -178,7 +186,7 @@ def rank(report):
             report.get("coverage") if report.get("coverage") is not None else -1.0)
 
 
-def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None):
+def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None, extra=None):
     """Select thresholds only after both policy and OOF approvals are recorded."""
     _require_oof_authorized()
     step = CFG["decision"]["tau_step"] if step is None else step
@@ -189,7 +197,7 @@ def select_tau(y, pred, conf_cnn, conf_c45, leaf_n=None, leaf_min_n=0, step=None
     best = None
     for tc in grid_cnn:
         for td in grid_c45:
-            pending = is_pending(conf_cnn, conf_c45, tc, td, leaf_n, leaf_min_n)
+            pending = is_pending(conf_cnn, conf_c45, tc, td, leaf_n, leaf_min_n, extra)
             report = screening_report(y, pred, pending, invalid_labels=CFG["decision"]["invalid_labels"])
             if best is None or rank(report) > rank(best[2]):
                 best = (tc, td, report)
@@ -255,7 +263,7 @@ def oof_c45(H, y, groups, hp, k=None, seed=42):
     return proba, leaf_n
 
 
-def grid_search(H, y, groups, p_marks, grid=None):
+def grid_search(H, y, groups, p_marks, grid=None, extra=None):
     """Legacy flat-OOF selection is intentionally disabled.
 
     Reusing the same OOF predictions to tune hyperparameters/thresholds and report
@@ -273,7 +281,8 @@ def grid_search(H, y, groups, p_marks, grid=None):
             proba, leaf_n = oof_c45(H, y, groups, {"min_leaf": min_leaf, "cf": cf})
             cc, cd = confidences(p_marks, proba)
             for leaf_min_n in grid["grid_leaf_min_n"]:
-                result = select_tau(y, proba.argmax(1), cc, cd, leaf_n=leaf_n, leaf_min_n=leaf_min_n)
+                result = select_tau(y, proba.argmax(1), cc, cd, leaf_n=leaf_n, leaf_min_n=leaf_min_n,
+                                    extra=extra)
                 result.update(min_leaf=min_leaf, cf=cf)
                 if best is None or rank(result["oof"]) > rank(best["oof"]):
                     best = result

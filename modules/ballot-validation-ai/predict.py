@@ -1,7 +1,7 @@
 """
 KIỂM TRA PHIẾU: nhập đường dẫn ảnh → cho biết phiếu có HỢP LỆ không và LỖI GÌ.
 
-Chạy trong modules/ballot-validation-ai/ (sau khi chạy main.py, đã lưu mark_cnn.pt):
+Chạy trong modules/ballot-validation-ai/ (cần một run hoàn tất của main.py trong results/runs/):
     python predict.py                  # chế độ nhập: gõ (hoặc kéo-thả) đường dẫn ảnh, Enter; để trống để thoát
     python predict.py anh.png          # một ảnh
     python predict.py thu_muc/ --csv ket_qua.csv
@@ -26,7 +26,9 @@ import torch
 from config import CFG, abspath
 from preprocess import binarize_fullres, crop_boxes
 from feature_c45 import extract_features
-from train_cnn import MarkCNN, predict_marks, DEVICE
+from train_cnn import MarkCNN, predict_marks_ensemble, DEVICE
+from stray_cnn import StrayNet, maxpool_input, predict_ensemble
+import manifest as mf
 from decision import confidences, is_pending
 
 IMG_W, IMG_H = 1200, 850
@@ -63,16 +65,29 @@ def hybrid_features(F, p_marks):
 
 
 def load_models():
-    c45_path = abspath(os.path.join(CFG["models_dir"], "hybrid_c45.joblib"))
-    cnn_path = abspath(os.path.join(CFG["models_dir"], "mark_cnn.pt"))
-    for p in (c45_path, cnn_path):
+    """Mô hình và ngưỡng lấy từ cùng một run hoàn tất gần nhất."""
+    try:
+        run_dir = mf.latest_run_dir(abspath(CFG["results_dir"]))
+    except OSError as e:
+        sys.exit(f"Chưa có run hoàn tất ({e}). Chạy main.py trước.")
+    c45_path, mark_path, stray_path = (os.path.join(run_dir, "models", n)
+                                       for n in ("hybrid_c45.joblib", "mark_cnn.pt", "stray_cnn.pt"))
+    for p in (c45_path, mark_path, stray_path):
         if not os.path.exists(p):
-            sys.exit(f"Thiếu {p}. Chạy main.py (đã thêm dòng lưu mark_cnn.pt) trước.")
-    c45 = joblib.load(c45_path)
-    cnn = MarkCNN().to(DEVICE)
-    cnn.load_state_dict(torch.load(cnn_path, map_location=DEVICE))
-    cnn.eval()
-    return c45, cnn, load_thresholds(abspath(os.path.join(CFG["results_dir"], "metrics.json")))
+            sys.exit(f"Thiếu {p}. Chạy main.py trước.")
+    th = load_thresholds(os.path.join(run_dir, "metrics.json"))
+    return joblib.load(c45_path), (_load_ensemble(MarkCNN, mark_path), _load_ensemble(StrayNet, stray_path)), th
+
+
+def _load_ensemble(cls, path):
+    models = []
+    for state in torch.load(path, map_location=DEVICE):
+        model = cls()
+        model.load_state_dict(state)
+        models.append(model.to(DEVICE if cls is MarkCNN else "cpu").eval())
+    if not models:
+        sys.exit(f"{path} không chứa mô hình nào")
+    return models
 
 
 def load_thresholds(path):
@@ -80,7 +95,7 @@ def load_thresholds(path):
     try:
         with open(path, encoding="utf-8") as f:
             sel = json.load(f)["hybrid_selective_observed_test"]
-        return {k: sel[k] for k in ("tau_cnn", "tau_c45", "leaf_min_n")}
+        return {k: sel[k] for k in ("tau_cnn", "tau_c45", "leaf_min_n", "tau_stray")}
     except (OSError, ValueError, KeyError, TypeError) as e:
         sys.exit(f"Không đọc được ngưỡng PENDING_REVIEW từ {path} ({e!r}). Chạy main.py trước.")
 
@@ -136,13 +151,16 @@ def predict_one(path, c45, cnn, th, layouts):
     binary = binarize_fullres(img)
     F = np.asarray([extract_features(binary, layout)], dtype=np.float32)
     C = crop_boxes(binary, layout["boxes"])[None]
-    p_marks = predict_marks(cnn, C)
+    mark_models, stray_models = cnn
+    p_marks = predict_marks_ensemble(mark_models, C)
+    p_stray = predict_ensemble(stray_models, maxpool_input(binary)[None])
     H = hybrid_features(F, p_marks)
     proba = c45.predict_proba(H)
     k = int(proba.argmax(1)[0])
     cc, cd = confidences(p_marks, proba)
     pend = bool(is_pending(cc, cd, th["tau_cnn"], th["tau_c45"],
-                           leaf_n=c45.leaf_size(H), leaf_min_n=th["leaf_min_n"])[0])
+                           leaf_n=c45.leaf_size(H), leaf_min_n=th["leaf_min_n"],
+                           extra=p_stray >= th["tau_stray"])[0])
     label = CFG["labels"][k]
     marked = [int(i) for i in np.where(p_marks[0] > 0.5)[0]]
     conflict = label == "valid" and not 1 <= len(marked) <= 3     # C4.5 nói hợp lệ nhưng số ô có dấu trái quy tắc

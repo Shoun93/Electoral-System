@@ -37,3 +37,58 @@ def summarize(name, y_true, y_pred):
         "invalid_precision": round(inv_precision, 4),
         "confusion_matrix": cm.tolist(),
     }
+
+
+def clopper_pearson_upper(k, n, conf=0.95):
+    """
+    Cận trên Clopper–Pearson MỘT PHÍA, công thức exact: beta.ppf(conf, k+1, n-k).
+    Hàm DUY NHẤT trong dự án (decision.py dùng lại). n ≤ 0 → None (mẫu số bằng 0, hiển thị N/A).
+    k ≥ n → 1.0.
+    """
+    from scipy.stats import beta
+    if n <= 0:
+        return None
+    if k >= n:
+        return 1.0
+    return float(beta.ppf(conf, k + 1, n - k))
+
+
+def _ratio(num, den):
+    return None if den <= 0 else num / den
+
+
+def invalid_to_valid_report(y, pred, pending, invalid_labels=None, labels=None):
+    """
+    Invalid → Valid Auto (BA v15 mục 3.4). KHÔNG nhầm với Selective Risk.
+      N_inv_to_valid = #(phiếu không hợp lệ, AUTO_ACCEPT, pred = valid)
+      R1 = N_inv_to_valid / N_invalid        (mẫu số: tổng phiếu không hợp lệ)
+      R2 = N_inv_to_valid / N_AUTO_ACCEPT    (mẫu số: tổng phiếu tự động chấp nhận)
+    invalid_labels phải được PM phê duyệt; thiếu thì trả trạng thái BLOCKED, không suy diễn.
+    Nhãn hiện có là nhãn hình thái, KHÔNG phải legal_label: kết quả chỉ để mô tả.
+    Nhãn loại trừ lẫn nhau nên Σ_k accept_k = N_inv_to_valid → Σ R2_k = R2.
+    Tổng R1 KHÔNG được tính bằng Σ R1_k (mẫu số khác nhau).
+    """
+    if invalid_labels is None:
+        return {"status": "BLOCKED_POLICY_NOT_APPROVED"}
+    labels = labels or CFG["labels"]
+    invalid = sorted({int(i) for i in invalid_labels})
+    if not invalid or VALID_IDX in invalid or invalid[0] < 0 or invalid[-1] >= len(labels):
+        raise ValueError("invalid_labels phải khác rỗng, trong phạm vi và không chứa valid")
+    y, pred, pend = np.asarray(y), np.asarray(pred), np.asarray(pending, dtype=bool)
+    accept = (~pend) & (pred == VALID_IDX)
+    inv = np.isin(y, invalid)
+    n_inv, n_acc = int(inv.sum()), int(accept.sum())
+    k = int((inv & accept).sum())
+    per = {}
+    for idx in invalid:
+        m = y == idx
+        n_k, ka = int(m.sum()), int((m & accept).sum())
+        per[labels[idx]] = {"n": n_k, "auto_accept": ka,
+                            "R1": _ratio(ka, n_k), "CP_upper_R1": clopper_pearson_upper(ka, n_k),
+                            "R2": _ratio(ka, n_acc), "CP_upper_R2": clopper_pearson_upper(ka, n_acc)}
+    return {"status": "DESCRIPTIVE_MORPHOLOGY_LABELS",
+            "N_inv_to_valid": k, "N_invalid": n_inv, "N_AUTO_ACCEPT": n_acc,
+            "R1": _ratio(k, n_inv), "CP_upper_R1": clopper_pearson_upper(k, n_inv),
+            "R2": _ratio(k, n_acc), "CP_upper_R2": clopper_pearson_upper(k, n_acc),
+            "sum_by_label_equals_total": sum(v["auto_accept"] for v in per.values()) == k,
+            "by_label": per}

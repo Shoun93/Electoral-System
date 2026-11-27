@@ -36,6 +36,11 @@ mark_cnn:
   folds: 5
   seed: 42
 
+stray_cnn:                   # CNN phát hiện dấu ngoài ô (wrong_mark) làm cờ PENDING_REVIEW
+  epochs: 25
+  folds: 5
+  recall_targets: [0.95, 0.97, 0.99]   # lưới ngưỡng cờ; chọn bên trong bước selection đang bị khóa
+
 decision:
   # PM policy not yet reconciled: no INVALID label set or acceptance threshold is assumed.
   acceptance_policy_approved: false
