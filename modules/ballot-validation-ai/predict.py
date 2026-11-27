@@ -79,7 +79,7 @@ def load_thresholds(path):
     """Thiếu ngưỡng thì dừng: mặc định 0 sẽ tự động phân loại mọi phiếu."""
     try:
         with open(path, encoding="utf-8") as f:
-            sel = json.load(f)["hybrid_selective"]
+            sel = json.load(f)["hybrid_selective_observed_test"]
         return {k: sel[k] for k in ("tau_cnn", "tau_c45", "leaf_min_n")}
     except (OSError, ValueError, KeyError, TypeError) as e:
         sys.exit(f"Không đọc được ngưỡng PENDING_REVIEW từ {path} ({e!r}). Chạy main.py trước.")

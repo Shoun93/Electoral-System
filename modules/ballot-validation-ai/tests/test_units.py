@@ -142,18 +142,21 @@ class TestGroupSplit(unittest.TestCase):
             split_train_val(d, seed=42)
 
 
+
 class TestDecision(unittest.TestCase):
-    def test_screening_counts_pending_as_detected(self):
+    def test_pending_is_referral_not_automatic_detection(self):
         from decision import screening_report
-        y    = np.array([1, 2, 3, 0, 0])      # 3 không hợp lệ, 2 hợp lệ
-        pred = np.array([0, 2, 0, 0, 0])      # thứ 1: dự đoán VALID; thứ 3: dự đoán VALID
+        y = np.array([1, 2, 3, 0, 0])
+        pred = np.array([0, 2, 0, 0, 0])
         pend = np.array([False, False, True, False, False])
-        r = screening_report(y, pred, pend)
-        self.assertAlmostEqual(r["invalid_screening_recall"], 2 / 3, places=4)   # idx 1 (auto đúng) + idx 2 (chờ)
+        r = screening_report(y, pred, pend, invalid_labels=[1, 2, 3])
         self.assertAlmostEqual(r["automatic_invalid_recall"], 1 / 3, places=4)
+        self.assertAlmostEqual(r["invalid_referral_rate"], 1 / 3, places=4)
+        self.assertAlmostEqual(r["invalid_interception_rate"], 2 / 3, places=4)
+        self.assertFalse(r["pending_counted_as_automatic_detection"])
         self.assertEqual(r["n_auto"], 4)
         self.assertAlmostEqual(r["referral_rate"], 1 / 5, places=4)
-        self.assertAlmostEqual(r["selective_risk"], 1 / 4, places=4)            # idx 0 auto nhưng sai
+        self.assertAlmostEqual(r["selective_risk"], 1 / 4, places=4)
 
     def test_or_rule(self):
         from decision import is_pending
@@ -162,34 +165,20 @@ class TestDecision(unittest.TestCase):
         p = is_pending(np.array([0.99]), np.array([0.5]), tau_cnn=0.9, tau_c45=0.9)
         self.assertEqual(p.tolist(), [True])
 
-    def test_select_tau_meets_target_when_possible(self):
-        from decision import select_tau
-        rng = np.random.default_rng(0)
-        y = rng.integers(0, 5, 400)
-        pred = y.copy()
-        conf_c45 = np.where(pred == y, 0.95, 0.3)       # sai → độ tin cậy thấp
-        conf_cnn = np.full(400, 0.99)
-        t = select_tau(y, pred, conf_cnn, conf_c45, step=0.01)
-        self.assertTrue(t["oof_target_met"])
-        self.assertGreaterEqual(t["oof"]["invalid_screening_recall"], 0.99)
+    def test_select_tau_is_blocked_until_policy_and_oof_approval(self):
+        from decision import PolicyNotApprovedError, select_tau
+        with self.assertRaises(PolicyNotApprovedError):
+            select_tau(np.array([0, 1]), np.array([0, 1]),
+                       np.array([0.99, 0.99]), np.array([0.99, 0.99]), step=0.01)
 
-    def test_rank_order_recall_then_risk_then_coverage(self):
-        from decision import rank, feasible
-        a = {"invalid_screening_recall": 0.995, "selective_risk": 0.01, "coverage": 0.85}
-        b = {"invalid_screening_recall": 0.990, "selective_risk": 0.005, "coverage": 0.95}
-        c = {"invalid_screening_recall": 0.985, "selective_risk": 0.0, "coverage": 1.0}
-        bad = {"invalid_screening_recall": 0.999, "selective_risk": 0.0, "coverage": 0.5}   # coverage < 0.80
-        for r in (a, b, c):
-            self.assertTrue(feasible(r))
-        self.assertFalse(feasible(bad))
-        self.assertGreater(rank(a), rank(b))      # Recall cao hơn thắng trước
-        self.assertGreater(rank(b), rank(c))      # Recall cao hơn (0.990 > 0.985) thắng, dù risk cao hơn
-        self.assertGreater(rank(c), rank(bad))    # cấu hình đạt thắng cấu hình không đạt
+    def test_acceptance_is_blocked_without_pm_policy(self):
+        from decision import feasible
+        self.assertFalse(feasible({"coverage": 1.0, "selective_risk": 0.0}))
 
-    def test_no_auto_gives_risk_one(self):
+    def test_no_auto_gives_undefined_selective_risk(self):
         from decision import screening_report
         r = screening_report(np.array([1, 2]), np.array([1, 2]), np.array([True, True]))
-        self.assertEqual(r["selective_risk"], 1.0)
+        self.assertIsNone(r["selective_risk"])
         self.assertEqual(r["coverage"], 0.0)
 
 
@@ -242,7 +231,7 @@ class TestRegressions(unittest.TestCase):
         with self.assertRaises(ValueError):
             psi(np.arange(10), [])
 
-    def test_caches_invalidate_when_sources_change(self):
+    def test_dataset_cache_invalidates_when_sources_change(self):
         import json
         from unittest import mock
 
@@ -263,9 +252,6 @@ class TestRegressions(unittest.TestCase):
                 cv2.imwrite(img, np.eye(60, dtype=np.uint8) * 255)
                 second = preprocess.load_dataset()
                 self.assertFalse(np.array_equal(first["X"], second["X"]))
-                k = preprocess.mark_cache_key(second, img)
-                changed = dict(second, M=1 - second["M"])
-                self.assertNotEqual(k, preprocess.mark_cache_key(changed, img))
 
 
 if __name__ == "__main__":

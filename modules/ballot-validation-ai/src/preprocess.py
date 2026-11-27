@@ -1,8 +1,8 @@
 """
 TIỀN XỬ LÝ ẢNH PHIẾU.
 Hai nhánh dùng hai độ phân giải khác nhau:
-  * Nhánh C4.5 : nhị phân hóa ở ĐỘ PHÂN GIẢI GỐC (nét dấu ~3 px sẽ mất nếu thu nhỏ trước).
-  * Nhánh CNN  : cùng ảnh nhị phân, thu về 224×224 (INTER_AREA), chuẩn hóa [0,1].
+  * Nhánh C4.5 : nhị phân hóa ở ĐỘ PHÂN GIẢI GỐC.
+  * Nhánh CNN  : cùng ảnh nhị phân, thu về SIZE×SIZE, chuẩn hóa [0,1].
 Ảnh nhị phân: 1 = mực (chữ, dấu), 0 = nền.
 """
 import csv
@@ -39,25 +39,34 @@ def to_cnn_input(binary01):
     return resized.astype(np.float32)
 
 
-MARK_SIZE = 48      # kích thước crop một ô đánh dấu đưa vào CNN phát hiện dấu
-MARK_MARGIN = 6     # nới rộng crop quanh ô (px ảnh gốc) để không cắt mất nét dấu
+MARK_SIZE = 48
+MARK_MARGIN = 6
 
 
 def crop_boxes(binary, boxes):
-    """Cắt 5 ô (đã nới MARK_MARGIN px) từ ảnh nhị phân gốc → mảng (5, MARK_SIZE, MARK_SIZE) float32."""
-    H, W = binary.shape
+    """Cắt crop quanh các ô đánh dấu từ ảnh nhị phân gốc."""
+    if np.asarray(binary).ndim != 2 or not boxes:
+        raise ValueError("binary phải là ảnh 2-D và boxes không được rỗng")
+    height, width = binary.shape
     out = []
-    for x1, y1, x2, y2 in boxes:
+    for box in boxes:
+        if len(box) != 4:
+            raise ValueError("Mỗi box phải có dạng (x1, y1, x2, y2)")
+        x1, y1, x2, y2 = box
         x1, y1 = max(int(round(x1)) - MARK_MARGIN, 0), max(int(round(y1)) - MARK_MARGIN, 0)
-        x2, y2 = min(int(round(x2)) + MARK_MARGIN, W), min(int(round(y2)) + MARK_MARGIN, H)
+        x2, y2 = min(int(round(x2)) + MARK_MARGIN, width), min(int(round(y2)) + MARK_MARGIN, height)
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError(f"Box không hợp lệ: {box}")
         patch = binary[y1:y2, x1:x2].astype(np.float32)
         out.append(cv2.resize(patch, (MARK_SIZE, MARK_SIZE), interpolation=cv2.INTER_AREA))
     return np.stack(out).astype(np.float32)
 
 
 def generate_synthetic_ballots():
-    """Gọi bộ sinh dữ liệu ở thư mục dataset/ của repo; ghi vào data/ của module."""
+    """Gọi bộ sinh dữ liệu ở thư mục dataset/ của repo; chỉ được gọi theo lệnh chạy pipeline."""
     spec = importlib.util.spec_from_file_location("generate_dataset", GENERATOR_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Không thể nạp bộ sinh dữ liệu giả lập")
     gen = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gen)
     gen.generate(out_root=MODULE_DIR)
@@ -77,19 +86,6 @@ def dataset_key():
     return h.hexdigest()
 
 
-def mark_cache_key(data, model_path):
-    """Khóa cache xác suất CNN theo ô: dữ liệu, split, cấu hình, mã huấn luyện và checkpoint."""
-    h = hashlib.sha256(json.dumps([CFG["mark_cnn"], CFG["data"]["val_fraction"]], sort_keys=True).encode())
-    for name in ("C", "M", "y", "groups", "split", "files"):
-        a = np.ascontiguousarray(data[name])
-        h.update(f"{name}{a.dtype}{a.shape}".encode())
-        h.update(a.tobytes())
-    for p in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "train_cnn.py"), model_path):
-        with open(p, "rb") as f:
-            h.update(hashlib.sha256(f.read()).digest())
-    return h.hexdigest()
-
-
 def build_processed():
     """Đọc ảnh gốc → đặc trưng C4.5 (ở độ phân giải gốc) + ảnh CNN 224×224 → một file .npz."""
     out = abspath(CFG["data"]["processed_npz"])
@@ -100,70 +96,181 @@ def build_processed():
                 return out
     os.makedirs(os.path.dirname(out), exist_ok=True)
     labels = CFG["labels"]
-    with open(abspath(CFG["data"]["labels_csv"]), encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    with open(abspath(CFG["data"]["boxes_json"]), encoding="utf-8") as f:
-        layout = json.load(f)
+    with open(abspath(CFG["data"]["labels_csv"]), encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    with open(abspath(CFG["data"]["boxes_json"]), encoding="utf-8") as stream:
+        layout = json.load(stream)
 
     X, F, C, M, y, split, files, groups = [], [], [], [], [], [], [], []
-    for r in rows:
-        img = cv2.imread(os.path.join(abspath(CFG["data"]["raw_dir"]), r["file"]), cv2.IMREAD_GRAYSCALE)
+    for row in rows:
+        image_path = os.path.join(abspath(CFG["data"]["raw_dir"]), row["file"])
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
-            raise FileNotFoundError(r["file"])
+            raise FileNotFoundError(image_path)
         binary = binarize_fullres(img)
-        lay = layout[r["file"]]
+        if row["file"] not in layout:
+            raise ValueError(f"Thiếu ROI cho ảnh: {row['file']}")
+        lay = layout[row["file"]]
+        boxes = lay.get("boxes")
+        if not isinstance(boxes, list) or not boxes:
+            raise ValueError(f"ROI boxes không hợp lệ: {row['file']}")
         F.append(extract_features(binary, lay))
         X.append(to_cnn_input(binary))
-        C.append(crop_boxes(binary, lay["boxes"]))
-        marked = {int(c) for c in r["o_co_danh_dau"].split("|") if c != ""}
-        M.append([int(k in marked) for k in range(len(lay["boxes"]))])
-        y.append(labels.index(r["label"]))
-        split.append(r["split"])
-        files.append(r["file"])
-        groups.append(r["group_id"])
+        C.append(crop_boxes(binary, boxes))
+        marked = {int(c) for c in row["o_co_danh_dau"].split("|") if c != ""}
+        if any(index < 0 or index >= len(boxes) for index in marked):
+            raise ValueError(f"Chỉ số ô đánh dấu ngoài phạm vi: {row['file']}")
+        M.append([int(k in marked) for k in range(len(boxes))])
+        if row["label"] not in labels:
+            raise ValueError(f"Nhãn không được khai báo: {row['label']}")
+        y.append(labels.index(row["label"]))
+        split.append(row["split"])
+        files.append(row["file"])
+        groups.append(row["group_id"])
+    if not rows:
+        raise ValueError("Manifest dữ liệu rỗng")
     np.savez_compressed(out, X=np.stack(X), F=np.asarray(F, dtype=np.float32),
                         C=np.stack(C), M=np.asarray(M, dtype=np.int64),
                         y=np.asarray(y), split=np.asarray(split), files=np.asarray(files),
-                        groups=np.asarray(groups),
-                        feature_names=np.asarray(FEATURE_NAMES), source_key=np.asarray(key))
-    print(f"✅ Tiền xử lý {len(rows)} phiếu → {out}")
+                        groups=np.asarray(groups), feature_names=np.asarray(FEATURE_NAMES),
+                        source_key=np.asarray(key))
+    print(f"Tiền xử lý {len(rows)} phiếu → {out}")
     return out
 
 
 def load_dataset():
-    """Trả về dict: X, F, C, M, y, split, files, groups (tạo lại nếu nguồn đã đổi)."""
-    d = np.load(build_processed(), allow_pickle=False)
-    return {k: d[k] for k in ["X", "F", "C", "M", "y", "split", "files", "groups"]}
+    """Trả về các mảng dữ liệu; cache tiền xử lý được tạo lại nếu nguồn đã đổi."""
+    path = build_processed()
+    with np.load(path, allow_pickle=False) as stored:
+        required = ("X", "F", "C", "M", "y", "split", "files", "groups")
+        missing = [key for key in required if key not in stored.files]
+        if missing:
+            raise ValueError(f"Processed dataset thiếu trường: {missing}")
+        return {key: stored[key] for key in required}
+
+
+def _validated_group_ids(values, name):
+    groups = np.asarray(values, dtype=object)
+    if groups.ndim != 1 or len(groups) == 0:
+        raise ValueError(f"{name} phải là mảng 1-D không rỗng")
+    cleaned = []
+    for index, value in enumerate(groups):
+        if value is None or (isinstance(value, (float, np.floating)) and np.isnan(value)):
+            raise ValueError(f"{name}[{index}] rỗng")
+        value = str(value).strip()
+        if not value:
+            raise ValueError(f"{name}[{index}] rỗng")
+        cleaned.append(value)
+    return np.asarray(cleaned, dtype=str)
 
 
 def check_group_disjoint(train_groups, val_groups):
-    """D-06: dừng nếu một group_id xuất hiện ở cả Train và Validation."""
-    overlap = set(train_groups) & set(val_groups)
+    """Dừng nếu group_id rỗng hoặc xuất hiện ở cả hai partition."""
+    train = _validated_group_ids(train_groups, "train_groups")
+    val = _validated_group_ids(val_groups, "val_groups")
+    overlap = set(train.tolist()) & set(val.tolist())
     if overlap:
-        raise ValueError(f"Group overlap Train/Validation: {len(overlap)} group, ví dụ {sorted(overlap)[:5]}")
-    return len(overlap)
+        examples = sorted(overlap)[:5]
+        raise ValueError(f"Group overlap Train/Validation: {len(overlap)} group, ví dụ {examples}")
+    return 0
 
 
 def split_train_val(data, seed=42):
-    """Tách Validation khỏi Train bằng GroupShuffleSplit theo group_id (D-06).
-    Validation = model-selection validation, KHÔNG phải Independent Test. Tập test giữ nguyên.
-    Trả về indices gốc (ánh xạ 1-1 với data) và meta để ghi vào metrics."""
+    """Tách Validation theo group_id; giữ nguyên Test và kiểm tra leakage cả ba partition."""
     from sklearn.model_selection import GroupShuffleSplit
-    tr_idx = np.where(data["split"] == "train")[0]
-    te_idx = np.where(data["split"] == "test")[0]
-    groups = np.asarray(data["groups"])
-    if any(not str(g).strip() for g in groups[tr_idx]):
-        raise ValueError("group_id rỗng trong tập Train")
-    a, b = next(GroupShuffleSplit(n_splits=1, test_size=CFG["data"]["val_fraction"],
-                                  random_state=seed).split(tr_idx, groups=groups[tr_idx]))
-    tr_out, va_idx = tr_idx[a], tr_idx[b]
-    overlap = check_group_disjoint(groups[tr_out], groups[va_idx])
+
+    required = ("split", "groups", "y")
+    missing = [key for key in required if key not in data]
+    if missing:
+        raise ValueError(f"Thiếu trường dữ liệu: {missing}")
+
+    split = np.asarray(data["split"])
     y = np.asarray(data["y"])
-    meta = {"method": "GroupShuffleSplit", "seed": int(seed),
-            "test_size_groups": CFG["data"]["val_fraction"],
-            "validation_purpose": "model-selection validation (không phải Independent Test)",
-            "n_train": int(len(tr_out)), "n_val": int(len(va_idx)),
-            "n_train_groups": int(len(set(groups[tr_out]))), "n_val_groups": int(len(set(groups[va_idx]))),
-            "group_overlap_train_val": int(overlap), "leakage_check": "PASS",
-            "val_class_counts": {str(c): int(n) for c, n in zip(*np.unique(y[va_idx], return_counts=True))}}
+    if split.ndim != 1 or y.ndim != 1 or len(split) == 0:
+        raise ValueError("split và y phải là mảng 1-D không rỗng")
+    groups = _validated_group_ids(data["groups"], "groups")
+    if not (len(split) == len(y) == len(groups)):
+        raise ValueError("split, y và groups phải có cùng số phần tử")
+
+    split = split.astype(str)
+    unknown = sorted(set(split.tolist()) - {"train", "test"})
+    if unknown:
+        raise ValueError(f"Giá trị split không hợp lệ: {unknown}")
+    tr_idx = np.flatnonzero(split == "train")
+    te_idx = np.flatnonzero(split == "test")
+    if len(tr_idx) == 0 or len(te_idx) == 0:
+        raise ValueError("Cần có cả Train và Test không rỗng")
+    if len(np.unique(groups[tr_idx])) < 2:
+        raise ValueError("Cần ít nhất 2 group trong Train để tách Validation")
+
+    train_test_overlap = set(groups[tr_idx]) & set(groups[te_idx])
+    if train_test_overlap:
+        raise ValueError(
+            f"Group leakage Train/Test: {len(train_test_overlap)} group, "
+            f"ví dụ {sorted(train_test_overlap)[:5]}"
+        )
+
+    val_fraction = CFG["data"]["val_fraction"]
+    if not isinstance(val_fraction, (int, float)) or not np.isfinite(val_fraction) or not 0 < val_fraction < 1:
+        raise ValueError("data.val_fraction phải nằm trong khoảng (0, 1)")
+
+    splitter = GroupShuffleSplit(n_splits=1, test_size=float(val_fraction), random_state=int(seed))
+    try:
+        train_local, val_local = next(splitter.split(tr_idx, y[tr_idx], groups[tr_idx]))
+    except ValueError as exc:
+        raise ValueError(f"Không thể tạo group-aware Train/Validation split: {exc}") from exc
+
+    tr_out, va_idx = tr_idx[train_local], tr_idx[val_local]
+    if len(tr_out) == 0 or len(va_idx) == 0:
+        raise ValueError("Train hoặc Validation rỗng sau khi tách")
+    check_group_disjoint(groups[tr_out], groups[va_idx])
+    check_group_disjoint(groups[tr_out], groups[te_idx])
+    check_group_disjoint(groups[va_idx], groups[te_idx])
+
+    if len(np.unique(np.concatenate([tr_out, va_idx]))) != len(tr_idx):
+        raise RuntimeError("Train/Validation không bảo toàn chính xác tập Train gốc")
+    if not np.array_equal(np.sort(np.concatenate([tr_out, va_idx])), np.sort(tr_idx)):
+        raise RuntimeError("Train/Validation không bao phủ đúng tập Train gốc")
+    if not np.array_equal(te_idx, np.flatnonzero(split == "test")):
+        raise RuntimeError("Tập Test đã bị thay đổi trong quá trình split")
+
+    val_classes = np.unique(y[va_idx])
+    train_classes = np.unique(y[tr_out])
+    all_classes = np.unique(y)
+    missing_train_classes = sorted(set(all_classes.tolist()) - set(train_classes.tolist()))
+    if missing_train_classes:
+        raise ValueError(
+            f"Train partition misses classes after group split: {missing_train_classes}. "
+            "Do not auto-reduce or silently change the split; review group/class feasibility."
+        )
+    missing_val_classes = sorted(set(all_classes.tolist()) - set(val_classes.tolist()))
+    checks = {
+        "nonempty_group_ids": True,
+        "train_val_disjoint": True,
+        "train_test_disjoint": True,
+        "val_test_disjoint": True,
+        "train_partition_preserved": True,
+        "test_partition_unchanged": True,
+    }
+    meta = {
+        "method": "GroupShuffleSplit",
+        "seed": int(seed),
+        "validation_fraction_of_train_groups": float(val_fraction),
+        "validation_purpose": "model-selection validation (không phải Independent Test)",
+        "n_train": int(len(tr_out)),
+        "n_val": int(len(va_idx)),
+        "n_test": int(len(te_idx)),
+        "n_train_groups": int(len(np.unique(groups[tr_out]))),
+        "n_val_groups": int(len(np.unique(groups[va_idx]))),
+        "n_test_groups": int(len(np.unique(groups[te_idx]))),
+        "group_overlap_train_val": 0,
+        "group_overlap_train_test": 0,
+        "group_overlap_val_test": 0,
+        "leakage_checks": checks,
+        "leakage_check": "PASS" if all(checks.values()) else "FAIL",
+        "train_class_counts": {str(c): int(n) for c, n in zip(*np.unique(y[tr_out], return_counts=True))},
+        "val_class_counts": {str(c): int(n) for c, n in zip(*np.unique(y[va_idx], return_counts=True))},
+        "train_missing_classes": missing_train_classes,
+        "val_missing_classes": missing_val_classes,
+    }
     return {"train": tr_out, "val": va_idx, "test": te_idx, "meta": meta}

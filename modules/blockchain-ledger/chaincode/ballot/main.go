@@ -19,6 +19,7 @@ const (
 	mspCountingBoard = "Org2MSP"              // Org2: tổ kiểm phiếu, ghi kết quả
 	mspSupervisor    = "Org3MSP"              // Org3: giám sát, chỉ đọc + kiểm chứng
 	privateColl      = "CountingBoardPrivate" // collection riêng, xem collections.json
+	saltSize         = 32                     // byte ngẫu nhiên do client sinh, chống dò serial từ băm công khai
 )
 
 type BallotRecord struct {
@@ -168,7 +169,7 @@ func (c *BallotChaincode) VerifyBatch(ctx contractapi.TransactionContextInterfac
 	return root == rec.Root && len(leaves) == rec.Count, nil
 }
 
-// PutTallyPrivate lưu số serial phiếu vào private data. serial đi qua transient map
+// PutTallyPrivate lưu salt || serial vào private data. Cả hai đi qua transient map
 // để KHÔNG xuất hiện trong đối số giao dịch hay sổ cái công khai.
 func (c *BallotChaincode) PutTallyPrivate(ctx contractapi.TransactionContextInterface, ballotID string) error {
 	if _, err := requireMSP(ctx, mspCountingBoard); err != nil {
@@ -182,6 +183,11 @@ func (c *BallotChaincode) PutTallyPrivate(ctx contractapi.TransactionContextInte
 	if !ok || len(serial) == 0 {
 		return fmt.Errorf("thiếu transient 'serial'")
 	}
+	// Chaincode không tự sinh salt: mọi peer endorse phải ra cùng kết quả.
+	salt := transient["salt"]
+	if len(salt) != saltSize {
+		return fmt.Errorf("transient 'salt' phải dài đúng %d byte", saltSize)
+	}
 	if ballotID == "" {
 		return fmt.Errorf("ballotID rỗng")
 	}
@@ -194,10 +200,11 @@ func (c *BallotChaincode) PutTallyPrivate(ctx contractapi.TransactionContextInte
 	if old != nil {
 		return fmt.Errorf("khóa %s đã tồn tại, không ghi đè", key)
 	}
-	if err := ctx.GetStub().PutPrivateData(privateColl, "tally:"+ballotID, serial); err != nil {
+	value := append(append([]byte{}, salt...), serial...)
+	if err := ctx.GetStub().PutPrivateData(privateColl, "tally:"+ballotID, value); err != nil {
 		return err
 	}
-	h := sha256.Sum256(serial)
+	h := sha256.Sum256(value)
 	// Chỉ băm được công khai: người không thuộc collection kiểm chứng được qua hàm dưới.
 	return ctx.GetStub().PutState(key, []byte(hex.EncodeToString(h[:])))
 }

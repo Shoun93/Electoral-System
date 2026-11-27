@@ -2,13 +2,15 @@
 
 Hệ thống kiểm phiếu bầu cử có trí tuệ nhân tạo, kết hợp sổ cái blockchain (Hyperledger Fabric) để lưu kết quả có thể kiểm chứng.
 
-> Trạng thái: **demo nghiên cứu, chưa đạt nghiệm thu**. Module AI chạy end-to-end trên dữ liệu giả lập. Phần chuyển `PENDING_REVIEW` (nhánh `feat/ba-giai-doan-1-selective`) **chưa đạt** ràng buộc Selective Risk ≤ 0.02. Mã blockchain đã viết nhưng chưa chạy trên Fabric. PBFT chưa làm. Kiểm toán và kế hoạch: [`docs/audit`](docs/audit).
+> Trạng thái: **demo nghiên cứu, chưa đạt nghiệm thu**. Module AI từng chạy end-to-end trên dữ liệu giả lập. Phần chuyển `PENDING_REVIEW` (nhánh `feat/ba-giai-doan-1-selective`) **chưa đạt** ràng buộc Selective Risk ≤ 0.02. Mã blockchain đã viết nhưng chưa chạy trên Fabric. PBFT chưa làm. Kiểm toán và kế hoạch: [`docs/audit`](docs/audit).
+
+> **Phase 1:** đã có safeguard audit ([`docs/audit/phase1_status.md`](docs/audit/phase1_status.md)). Pipeline AI đang khóa fail-closed cho đến khi các quyết định PM còn treo và nested group-aware OOF được xử lý.
 
 ## Các module
 
 | Module | Thư mục | Trạng thái | Mô tả |
 |---|---|---|---|
-| Kiểm phiếu bằng AI | [`modules/ballot-validation-ai`](modules/ballot-validation-ai) | ✅ Chạy end-to-end; ⚠️ chuyển `PENDING_REVIEW` chưa đạt nghiệm thu (dữ liệu giả lập) | Phân loại phiếu bằng mô hình lai CNN theo ô + C4.5 (có luật IF-THEN), chuyển `PENDING_REVIEW` theo ngưỡng chọn trên OOF Train, ghi kết quả lên hash-chain |
+| Kiểm phiếu bằng AI | [`modules/ballot-validation-ai`](modules/ballot-validation-ai) | ⚠️ Pipeline huấn luyện đang khóa fail-closed; chưa nghiệm thu (dữ liệu giả lập) | Phân loại phiếu bằng mô hình lai CNN theo ô + C4.5 (có luật IF-THEN), chuyển `PENDING_REVIEW` theo ngưỡng chọn trên OOF Train, ghi kết quả lên hash-chain |
 | Sổ cái blockchain | [`modules/blockchain-ledger`](modules/blockchain-ledger) | ⚠️ Chaincode đã merge vào `main`, chưa hoàn chỉnh cho CCaaS | Hyperledger Fabric 3.1.5, 3 tổ chức, endorsement 2-trong-3, private data, gốc Merkle theo lô |
 | Đồng thuận PBFT | — | ❌ Chưa làm | SmartBFT cần 4 orderer và cấu hình `bft-config/` |
 | Đăng ký/xác thực cử tri | — | 🔜 Kế hoạch | Xác thực danh tính cử tri trước khi bỏ phiếu |

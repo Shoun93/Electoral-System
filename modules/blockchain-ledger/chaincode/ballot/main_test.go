@@ -19,15 +19,17 @@ func (s fakeStub) PutState(k string, v []byte) error          { s.state[k] = v; 
 func (s fakeStub) PutPrivateData(_, k string, v []byte) error { s.private[k] = v; return nil }
 func (s fakeStub) GetPrivateData(_, k string) ([]byte, error) { return s.private[k], nil }
 func (s fakeStub) GetTransient() (map[string][]byte, error) {
-	return map[string][]byte{"serial": s.state["_serial"]}, nil
+	return map[string][]byte{"serial": s.state["_serial"], "salt": s.state["_salt"]}, nil
 }
 
 type fakeID struct{ cid.ClientIdentity }
 
 func (fakeID) GetMSPID() (string, error) { return mspCountingBoard, nil }
 
+var testSalt = strings.Repeat("k", saltSize)
+
 func newCtx() (*contractapi.TransactionContext, fakeStub) {
-	s := fakeStub{state: map[string][]byte{"_serial": []byte("s-1")}, private: map[string][]byte{}}
+	s := fakeStub{state: map[string][]byte{"_serial": []byte("s-1"), "_salt": []byte(testSalt)}, private: map[string][]byte{}}
 	ctx := &contractapi.TransactionContext{}
 	ctx.SetStub(s)
 	ctx.SetClientIdentity(fakeID{})
@@ -44,11 +46,22 @@ func TestTallyPrivateIsWriteOnce(t *testing.T) {
 	if err := c.PutTallyPrivate(ctx, "b1"); err == nil {
 		t.Fatal("ghi đè private data phải bị từ chối")
 	}
-	if string(s.private["tally:b1"]) != "s-1" {
+	if string(s.private["tally:b1"]) != testSalt+"s-1" {
 		t.Fatal("private data đã bị đổi")
 	}
 	if ok, err := c.VerifyTallyPrivate(ctx, "b1"); err != nil || !ok {
 		t.Fatal(ok, err)
+	}
+}
+
+func TestTallyPrivateRequiresSalt(t *testing.T) {
+	ctx, s := newCtx()
+	s.state["_salt"] = []byte("ngan")
+	if (&BallotChaincode{}).PutTallyPrivate(ctx, "b1") == nil {
+		t.Fatal("salt ngắn phải bị từ chối")
+	}
+	if len(s.private) != 0 {
+		t.Fatal("không được ghi private data")
 	}
 }
 

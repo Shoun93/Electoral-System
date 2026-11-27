@@ -1,0 +1,38 @@
+name: Phase 1 unit tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/ballot-validation-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip numpy pandas scikit-learn opencv-python-headless pyyaml
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  chaincode-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/blockchain-ledger/chaincode/ballot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: modules/blockchain-ledger/chaincode/ballot/go.mod
+          cache-dependency-path: modules/blockchain-ledger/chaincode/ballot/go.sum
+      - name: Vet and test chaincode
+        run: go vet ./... && go test ./...

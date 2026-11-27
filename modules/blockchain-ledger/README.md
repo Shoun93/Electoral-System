@@ -22,8 +22,12 @@ Môi trường phát triển không có Docker và không tải được thư vi
   Chaincode kiểm tra MSP của người gọi qua `requireMSP`.
 - **Endorsement:** `OutOf(2, ...)`, cần 2 trong 3 tổ chức. Tên MSP khớp với test-network của fabric-samples.
 - **Ghi một lần:** `putNew` không ghi đè khóa đã có, nên bản ghi đã commit không sửa được.
-- **Private data:** số serial phiếu đi qua transient map và chỉ nằm trong collection `CountingBoardPrivate`.
-  Sổ cái công khai chỉ có băm SHA-256, ai cũng kiểm chứng được mà không đọc được dữ liệu gốc.
+- **Private data:** số serial phiếu (`serial`) và 32 byte ngẫu nhiên do client sinh (`salt`) đi qua transient map,
+  chỉ nằm trong collection `CountingBoardPrivate`. Sổ cái công khai chỉ có SHA-256 của `salt || serial`,
+  nên không dò ngược được serial dễ đoán.
+- **Endorse `PutTallyPrivate`:** client chỉ gửi giao dịch tới peer Org2 và Org3. Peer endorse nhận transient map,
+  nên gửi tới Org1 sẽ làm lộ `serial`. `requiredPeerCount: 1` buộc phát private data tới ít nhất một peer
+  thành viên khác trước khi endorse (chưa kiểm thử trên mạng thật).
 - **Merkle:** pipeline tính gốc Merkle cho lô phiếu (`results/fabric_batch.json`), `CommitBatch` ghi gốc lên sổ cái,
   `VerifyBatch` tính lại từ danh sách lá và so sánh.
 
