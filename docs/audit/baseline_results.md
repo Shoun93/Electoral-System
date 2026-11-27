@@ -100,7 +100,7 @@ Dữ liệu seed 1–3 nằm ngoài repo (`scratchpad`). Script: `stab.py`.
 | Kiểm tra | Kết quả |
 |---|---|
 | `go test ./merkle/ -v` (Go đã cài tại `/usr/local/go`) | ✅ PASS: `TestVector`, `TestSingleLeafIsItself`, `TestRejectsBadLeaf` |
-| `go build ./...` trong `chaincode/ballot` | ❌ Không tải được `github.com/hyperledger/fabric-contract-api-go/v2 v2.2.0` (không truy cập `proxy.golang.org` từ máy này). Chưa biên dịch được `main.go`. |
+| `go build ./...` và `go vet ./...` | ✅ PASS trong bản sao có replace GitHub (xem `chaincode_build_verify.md`). Repo gốc chưa build được do môi trường chặn `proxy.golang.org`. |
 | `go vet ./...` | ❌ Cùng nguyên nhân (không có module). |
 | Đọc `main.go` (177 dòng) | Có 11 hàm: `requireMSP`, `putNew`, `RecordModelAnchor`, `RecordBallot`, `GetBallot`, `CommitBatch`, `VerifyBatch`, `PutTallyPrivate`, `VerifyTallyPrivate`, `main`. Không có hàm pending/review. |
 | Triển khai Fabric | Chưa chạy. `deploy.sh` không kiểm thử. |
@@ -111,4 +111,6 @@ Hạn chế kiểm tra: chaincode chưa biên dịch trên máy này. Cần mạ
 
 Đã có: `current_state.md`, `baseline_results.md`, `known_failures_wrong_mark.csv` (19 phiếu, cùng một lá), số liệu ổn định qua seed, kiểm tra Go Merkle.
 
-Chưa xong: chaincode chưa biên dịch được (cần mạng hoặc vendor). Phần này nằm ngoài khả năng hoàn thành trên máy này.
+Đã xong: chaincode biên dịch và `go vet` sạch trong bản sao có replace (19/11). Còn lại: build chính thức cần mạng tới proxy Go; chạy trên Fabric thật.
+
+Đã sửa trong Phase 0 (19/11): thông báo demo hash-chain (`phát hiện sửa: True`), cache CNN khóa theo checksum nguồn.

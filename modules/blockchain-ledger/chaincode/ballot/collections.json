@@ -2,7 +2,7 @@
   {
     "name": "CountingBoardPrivate",
     "policy": "OR('Org2MSP.member','Org3MSP.member')",
-    "requiredPeerCount": 0,
+    "requiredPeerCount": 1,
     "maxPeerCount": 3,
     "blockToLive": 0,
     "memberOnlyRead": true,

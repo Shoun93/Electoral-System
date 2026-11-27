@@ -2,14 +2,16 @@
 
 Hệ thống kiểm phiếu bầu cử có trí tuệ nhân tạo, kết hợp sổ cái blockchain (Hyperledger Fabric) để lưu kết quả có thể kiểm chứng.
 
-> Trạng thái: **demo nghiên cứu, chưa đạt nghiệm thu**. Module AI chạy end-to-end trên dữ liệu giả lập. Phần chuyển `PENDING_REVIEW` (nhánh `feat/ba-giai-doan-1-selective`) **chưa đạt** ràng buộc Selective Risk ≤ 0.02. Mã blockchain đã viết nhưng chưa chạy trên Fabric. PBFT chưa làm. Kiểm toán và kế hoạch: [`docs/audit`](docs/audit).
+> Trạng thái: **demo nghiên cứu, chưa đạt nghiệm thu**. Module AI từng chạy end-to-end trên dữ liệu giả lập. Phần chuyển `PENDING_REVIEW` ở lần đo trước **chưa đạt** ràng buộc Selective Risk ≤ 0.02. Mã blockchain đã viết nhưng chưa chạy trên Fabric. PBFT chưa làm. Kiểm toán và kế hoạch: [`docs/audit`](docs/audit).
+
+> **Phase 1:** đã có safeguard audit ([`docs/audit/phase1_status.md`](docs/audit/phase1_status.md)). Pipeline AI đang khóa fail-closed cho đến khi các quyết định PM còn treo và nested group-aware OOF được xử lý.
 
 ## Các module
 
 | Module | Thư mục | Trạng thái | Mô tả |
 |---|---|---|---|
-| Kiểm phiếu bằng AI | [`modules/ballot-validation-ai`](modules/ballot-validation-ai) | ✅ Chạy end-to-end; ⚠️ chuyển `PENDING_REVIEW` chưa đạt nghiệm thu (dữ liệu giả lập) | Phân loại phiếu bằng mô hình lai CNN theo ô + C4.5 (có luật IF-THEN), chuyển `PENDING_REVIEW` theo ngưỡng chọn trên OOF Train, ghi kết quả lên hash-chain |
-| Sổ cái blockchain | [`modules/blockchain-ledger`](modules/blockchain-ledger) | ⚠️ Chaincode đã merge vào `main`, chưa hoàn chỉnh cho CCaaS | Hyperledger Fabric 3.1.5, 3 tổ chức, endorsement 2-trong-3, private data, gốc Merkle theo lô |
+| Kiểm phiếu bằng AI | [`modules/ballot-validation-ai`](modules/ballot-validation-ai) | ⚠️ Pipeline huấn luyện đang khóa fail-closed; chưa nghiệm thu (dữ liệu giả lập) | Phân loại phiếu bằng mô hình lai CNN theo ô + C4.5 (có luật IF-THEN), chuyển `PENDING_REVIEW` theo ngưỡng (bước chọn ngưỡng đang khóa), ghi kết quả lên hash-chain |
+| Sổ cái blockchain | [`modules/blockchain-ledger`](modules/blockchain-ledger) | ⚠️ Chaincode có unit test; chưa kiểm chứng tự động trên mạng Fabric | Hyperledger Fabric 3.1.5, 3 tổ chức, endorsement 2-trong-3, private data, gốc Merkle theo lô |
 | Đồng thuận PBFT | — | ❌ Chưa làm | SmartBFT cần 4 orderer và cấu hình `bft-config/` |
 | Đăng ký/xác thực cử tri | — | 🔜 Kế hoạch | Xác thực danh tính cử tri trước khi bỏ phiếu |
 | Tổng hợp kết quả | — | 🔜 Kế hoạch | Tổng hợp từ nhiều trạm kiểm phiếu, đối chiếu với sổ cái |
@@ -94,39 +96,29 @@ cd modules/ballot-validation-ai
 python -m unittest discover -s tests -v
 ```
 
-Kiểm tra: `Ran 18 tests` và `OK`.
+Kiểm tra: dòng cuối là `OK`.
 
-### Bước 5 — Chạy pipeline AI
+### Bước 5 — Pipeline AI (đang khóa)
 
 ```bash
 python main.py
 ```
 
-Pipeline thực hiện theo thứ tự: tiền xử lý, baseline, C4.5 thủ công, CNN toàn ảnh (đối chứng), CNN theo ô (out-of-fold trên Train), chọn cấu hình C4.5 và ngưỡng `PENDING_REVIEW` trên OOF Train, huấn luyện mô hình lai, đánh giá trên Test, ghi hash-chain và Merkle batch.
+Hiện tại lệnh này **dừng có chủ đích** với `PolicyNotApprovedError`. Điều kiện mở khóa: [`docs/audit/phase1_status.md`](docs/audit/phase1_status.md). `predict.py` cần một run hoàn tất nên cũng chưa dùng được.
 
-Các dòng cần xem:
-- `[chọn] min_leaf=... cf=... leaf_min_n=... τ_CNN=... τ_C4.5=...`: cấu hình được chọn trên OOF Train.
-- `[nghiệm thu Test] ĐẠT` hoặc `KHÔNG ĐẠT`: kết quả so với ràng buộc Recall ≥ 0.98, Coverage ≥ 0.80 (chưa phê duyệt), Selective Risk ≤ 0.02.
-
-**Cảnh báo:**
-- Nếu đổi dữ liệu (chạy lại bước 3 với seed hoặc số ảnh khác), xóa cache trước: `rm -f results/mark_probs_cache.npz`. Cache chỉ kiểm tra danh sách file, không kiểm tra seed hay config.
-- Lần chạy hiện tại trên Test **không ĐẠT** ràng buộc Selective Risk. Đây là kết quả thật, không chỉnh ngưỡng để đạt. Xem [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
-- Tập Test đã được dùng nhiều lần để khám phá. Không dùng số Test để báo cáo nghiệm thu.
-
-Kết quả ghi trong `modules/ballot-validation-ai/results/`:
+Khi được mở khóa, mỗi lần chạy ghi vào `results/runs/<run_id>/` (không ghi đè):
 
 | File | Nội dung |
 |---|---|
-| `metrics.json` | Chỉ số tất cả mô hình, kết quả `hybrid_selective` |
-| `predictions.csv` | Dự đoán từng phiếu Test, cột `status` (`AUTO_CLASSIFIED` / `PENDING_REVIEW`) |
-| `hashchain.json` | Chuỗi khối cục bộ |
-| `fabric_batch.json` | Lô lá Merkle để chaincode `CommitBatch` / `VerifyBatch` |
-| `metrics_log.json` | Lịch sử các lần chạy |
-| `mark_probs_cache.npz` | Cache xác suất CNN theo ô |
+| `manifest.json` | Commit, hash cấu hình, khóa dữ liệu, phiên bản thư viện, hash artifact |
+| `metrics.json` | Chỉ số các mô hình, `hybrid_selective_observed_test`, Invalid → Valid |
+| `predictions.csv`, `oof_predictions.csv` | Dự đoán Observed Test và OOF Train |
+| `hashchain.json`, `fabric_batch.json` | Chuỗi khối cục bộ, lô lá Merkle cho `CommitBatch` / `VerifyBatch` |
+| `log.txt`, `models/` | Log và mô hình của run |
 
-Thư mục `models/` chứa mô hình đã huấn luyện. `results/`, `models/` và `data/` không commit (xem `.gitignore`).
+Ngoài thư mục run: `results/latest_run.txt` (run hoàn tất gần nhất), `results/TEST_OBSERVED.json` (sổ đăng ký lần đọc Test), `results/metrics_log.json`, `results/cache/`.
 
-Kiểm tra: `python -c "import json; print(json.load(open('results/metrics.json'))['hybrid_selective']['coverage'])"` in ra một số (Coverage).
+Tập Test đã được dùng nhiều lần để khám phá. Không dùng số Test để báo cáo nghiệm thu.
 
 ### Bước 6 — Kiểm tra Merkle trong Go
 
@@ -137,7 +129,7 @@ go test ./merkle/ -v
 
 Kiểm tra: `PASS` cho 3 test.
 
-Không chạy được `go build ./...` khi không có mạng để tải `fabric-contract-api-go`.
+`go build ./...` và `go test ./...` cần mạng để tải `fabric-contract-api-go`; CI chạy cả hai.
 
 ### Bước 7 — Fabric test-network (chỉ trên máy có Docker)
 
@@ -152,7 +144,7 @@ cd /path/to/electoral-system                  # thay bằng đường dẫn repo
 FABRIC_SAMPLES="$HOME/fabric-samples" modules/blockchain-ledger/network/deploy.sh
 ```
 
-`deploy.sh` dùng quy trình `peer lifecycle` cũ. Quy trình CCaaS đã chạy trên máy phát triển nhưng chưa có trong repo.
+`deploy.sh` dùng quy trình `peer lifecycle` (`package --lang golang`). Quy trình CCaaS chưa có script trong repo.
 
 Không commit thư mục `organizations/`, khóa hay MSP.
 
@@ -167,7 +159,7 @@ docker run --rm -v "$PWD/results:/app/modules/ballot-validation-ai/results" \
                 -v "$PWD/models:/app/modules/ballot-validation-ai/models" ballot-ai
 ```
 
-Dockerfile chưa được build kiểm chứng. Nếu container không có `data/` và `main.py` không tự sinh được, chạy bước 3 bên trong container trước.
+Dockerfile chưa được build kiểm chứng. Container chạy `main.py`, hiện dừng ở khóa phê duyệt (bước 5).
 
 ## 1. Module kiểm phiếu bằng AI
 
@@ -199,17 +191,21 @@ modules/ballot-validation-ai/
 ├── requirements.txt
 ├── src/
 │   ├── config.py           # đọc config (đường dẫn tính theo vị trí file)
-│   ├── preprocess.py       # nhị phân hóa, crop ô, tạo models/dataset.npz
+│   ├── preprocess.py       # nhị phân hóa, crop ô, tạo data/processed/dataset.npz
 │   ├── feature_c45.py      # 8 đặc trưng thủ công
 │   ├── c45.py              # cài đặt C4.5 (numpy)
 │   ├── train_c45.py        # huấn luyện C4.5, in luật
 │   ├── train_cnn.py        # CNN toàn ảnh (đối chứng) và CNN phát hiện dấu theo ô
+│   ├── stray_cnn.py        # CNN phát hiện dấu ngoài ô, làm cờ PENDING_REVIEW
+│   ├── decision.py         # PENDING_REVIEW, chỉ số selective, khóa phê duyệt
+│   ├── cache.py            # cache xác suất CNN theo checksum
+│   ├── manifest.py         # thư mục run, manifest, sổ đăng ký Test
 │   ├── baselines.py        # majority, Naive Bayes, kNN
 │   ├── evaluate.py         # báo cáo 5 lớp, nhị phân hợp lệ/không hợp lệ, ma trận nhầm lẫn
 │   ├── hashchain.py        # chuỗi khối cục bộ (SHA-256 + PoW nhẹ), lưu và xác minh
 │   ├── merkle.py           # gốc Merkle (cùng vector kiểm thử với Go)
 │   └── monitor.py          # PSI, log lịch sử, cảnh báo suy giảm
-└── tests/test_units.py
+└── tests/                  # unit test, không cần dữ liệu thật
 ```
 
 ### Cài đặt và chạy
@@ -217,11 +213,11 @@ modules/ballot-validation-ai/
 ```bash
 cd modules/ballot-validation-ai
 pip install -r requirements.txt
-python main.py                              # tự sinh phiếu nếu chưa có, huấn luyện, đánh giá, ghi kết quả
 python -m unittest discover -s tests -v     # kiểm thử đơn vị
+python main.py                              # đang khóa fail-closed; không tự sinh dữ liệu
 ```
 
-Đầu ra trong `results/`: `metrics.json`, `predictions.csv`, `hashchain.json`, `fabric_batch.json`, `metrics_log.json`. Thư mục `models/` chứa mô hình đã huấn luyện. Hai thư mục này không được commit (xem `.gitignore`).
+Đầu ra: `results/runs/<run_id>/` (bước 5). `results/`, `models/` và `data/` không được commit (xem `.gitignore`).
 
 ### Dữ liệu
 
@@ -239,7 +235,7 @@ Chia train 1750 / val 250 / test 500 theo `group_id` (một phiếu gốc không
 
 ### Kết quả
 
-> Lần chạy gần nhất: 2500 phiếu, seed 42, tập test 500. Tập test đã được dùng nhiều lần để khám phá cấu hình, nên các số dưới đây **không phải bằng chứng nghiệm thu**. Chi tiết: [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
+> Số đo từ lần chạy **trước** khi có khóa phê duyệt và cờ dấu ngoài ô; mã hiện tại chưa được chạy lại. Điều kiện lần chạy đó: 2500 phiếu, seed 42, tập test 500. Tập test đã được dùng nhiều lần để khám phá cấu hình, nên các số dưới đây **không phải bằng chứng nghiệm thu**. Chi tiết: [`docs/audit/baseline_results.md`](docs/audit/baseline_results.md).
 
 | Mô hình | Accuracy | Macro-F1 | Recall "không hợp lệ" | Precision "không hợp lệ" |
 |---|---|---|---|---|
@@ -252,7 +248,7 @@ Chia train 1750 / val 250 / test 500 theo `group_id` (một phiếu gốc không
 
 - CNN phát hiện dấu theo ô đạt accuracy 1.0 trên tập test (cấp ô).
 - CNN toàn ảnh không học: val_acc cố định 0.20. Chưa điều tra nguyên nhân. Đối chứng này chưa có giá trị.
-- Ngưỡng chuyển `PENDING_REVIEW` (cấu hình chọn trên OOF Train): Invalid Screening Recall 1.000, Coverage 0.856, Referral Rate 0.144, **Selective Risk 0.068 (vượt ngưỡng 0.02)**. Không đạt nghiệm thu.
+- Ngưỡng chuyển `PENDING_REVIEW` (cấu hình chọn trên OOF Train phẳng; quy trình này đã bị khóa): Invalid Screening Recall 1.000, Coverage 0.856, Referral Rate 0.144, **Selective Risk 0.068 (vượt ngưỡng 0.02)**. Không đạt nghiệm thu.
 
 **Đọc kết quả thận trọng:** trên dữ liệu giả lập, 8 đặc trưng thủ công gần như tách hoàn toàn các lớp, nên C4.5 đơn thuần đã đạt kết quả gần tối đa. Lợi ích của CNN chỉ kiểm chứng được trên ảnh scan thật (nhiễu, bóng, tẩy xóa, chữ ký không đều). Lớp `wrong_mark` là lớp khó nhất; 19 phiếu `wrong_mark` trên tập test rơi vào một lá C4.5 không tách được (xem audit).
 
@@ -267,6 +263,7 @@ IF count_ink_boxes > 3.5 AND max_box_density ≤ 0.401                          
 
 ### MLOps tối thiểu
 
+- `results/runs/<run_id>/manifest.json`: truy vết mã, cấu hình, dữ liệu và artifact của từng run.
 - `results/metrics_log.json` và `check_drift()`: so sánh độ chính xác lần chạy mới với lịch sử, cảnh báo nếu giảm hơn 5 điểm.
 - `monitor.psi()`: đo lệch phân phối đặc trưng giữa train và dữ liệu sản xuất. Chưa có dữ liệu sản xuất để chạy thật.
 - `hashchain.json`: 1 block neo mã băm mô hình và manifest dữ liệu, rồi một block cho mỗi phiếu. `verify()` trả về `False` khi một block bị sửa.
@@ -290,8 +287,8 @@ Tóm tắt thiết kế:
 |---|---|
 | Cây Merkle Go (`chaincode/ballot/merkle/`) | ✅ `go test ./merkle/` |
 | Cây Merkle Python (`src/merkle.py`) | ✅ cùng vector với Go |
-| Chaincode (`main.go`) | ⚠️ `main` dùng `contractapi` với `cc.Start()` (peer build). Chưa có `shim.ChaincodeServer` cần cho CCaaS |
-| Dockerfile chaincode | ⚠️ Build binary `/cc` nhưng vẫn chạy `cc.Start()`. Chưa phục vụ CCaaS. Cần thêm `ChaincodeServer` |
+| Chaincode (`main.go`) | ⚠️ Biên dịch và `go test` chạy trong CI (stub giả). `cc.Start()` chạy chế độ server khi có `CHAINCODE_SERVER_ADDRESS` và `CORE_CHAINCODE_ID_NAME` |
+| Dockerfile chaincode | ⚠️ Chưa build kiểm chứng |
 | Triển khai trên test-network | ⚠️ `deploy.sh` còn theo quy trình cũ (`package --lang golang`). Quy trình CCaaS dùng `network.sh deployCCAAS` |
 | Kiểm thử trên mạng 3 tổ chức | ⚠️ Các luồng ghi, đọc, endorsement, private data và VerifyBatch đã chạy trên máy phát triển với bản CCaaS chưa commit. Chưa có kiểm thử tự động |
 | Phân tích STRIDE | ✅ `docs/stride.md`. Còn 2 kịch bản chưa kiểm thử (sửa private data, DoS) |

@@ -13,7 +13,7 @@ from config import CFG, abspath
 from feature_c45 import FEATURE_NAMES
 
 
-def train_c45(F_tr, y_tr, F_va, y_va, feature_names=None, save=True, tag="c45_model", hp=None):
+def train_c45(F_tr, y_tr, F_va, y_va, feature_names=None, save=True, tag="c45_model", hp=None, model_dir=None):
     hp = dict(CFG["c45"], **(hp or {}))
     clf = C45Classifier(max_depth=hp["max_depth"], min_leaf=hp["min_leaf"], cf=hp["cf"])
     clf.fit(F_tr, y_tr, feature_names=feature_names or FEATURE_NAMES, class_names=CFG["labels"])
@@ -24,7 +24,7 @@ def train_c45(F_tr, y_tr, F_va, y_va, feature_names=None, save=True, tag="c45_mo
     print(classification_report(y_va, clf.predict(F_va), labels=range(len(CFG["labels"])),
                                 target_names=CFG["labels"], zero_division=0))
     if save:
-        path = abspath(os.path.join(CFG["models_dir"], f"{tag}.joblib"))
+        path = os.path.join(model_dir or abspath(CFG["models_dir"]), f"{tag}.joblib")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         joblib.dump(clf, path)
         print(f"✅ Đã lưu {path}")

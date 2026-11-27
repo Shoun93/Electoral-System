@@ -1,7 +1,7 @@
 """
 KIỂM TRA PHIẾU: nhập đường dẫn ảnh → cho biết phiếu có HỢP LỆ không và LỖI GÌ.
 
-Chạy trong modules/ballot-validation-ai/ (sau khi chạy main.py, đã lưu mark_cnn.pt):
+Chạy trong modules/ballot-validation-ai/ (cần một run hoàn tất của main.py trong results/runs/):
     python predict.py                  # chế độ nhập: gõ (hoặc kéo-thả) đường dẫn ảnh, Enter; để trống để thoát
     python predict.py anh.png          # một ảnh
     python predict.py thu_muc/ --csv ket_qua.csv
@@ -26,7 +26,9 @@ import torch
 from config import CFG, abspath
 from preprocess import binarize_fullres, crop_boxes
 from feature_c45 import extract_features
-from train_cnn import MarkCNN, predict_marks, DEVICE
+from train_cnn import MarkCNN, predict_marks_ensemble, DEVICE
+from stray_cnn import StrayNet, maxpool_input, predict_ensemble
+import manifest as mf
 from decision import confidences, is_pending
 
 IMG_W, IMG_H = 1200, 850
@@ -63,22 +65,39 @@ def hybrid_features(F, p_marks):
 
 
 def load_models():
-    c45_path = abspath(os.path.join(CFG["models_dir"], "hybrid_c45.joblib"))
-    cnn_path = abspath(os.path.join(CFG["models_dir"], "mark_cnn.pt"))
-    for p in (c45_path, cnn_path):
+    """Mô hình và ngưỡng lấy từ cùng một run hoàn tất gần nhất."""
+    try:
+        run_dir = mf.latest_run_dir(abspath(CFG["results_dir"]))
+    except OSError as e:
+        sys.exit(f"Chưa có run hoàn tất ({e}). Chạy main.py trước.")
+    c45_path, mark_path, stray_path = (os.path.join(run_dir, "models", n)
+                                       for n in ("hybrid_c45.joblib", "mark_cnn.pt", "stray_cnn.pt"))
+    for p in (c45_path, mark_path, stray_path):
         if not os.path.exists(p):
-            sys.exit(f"Thiếu {p}. Chạy main.py (đã thêm dòng lưu mark_cnn.pt) trước.")
-    c45 = joblib.load(c45_path)
-    cnn = MarkCNN().to(DEVICE)
-    cnn.load_state_dict(torch.load(cnn_path, map_location=DEVICE))
-    cnn.eval()
-    th = {"tau_cnn": 0.0, "tau_c45": 0.0, "leaf_min_n": 0}
-    mpath = abspath(os.path.join(CFG["results_dir"], "metrics.json"))
-    if os.path.exists(mpath):
-        with open(mpath, encoding="utf-8") as f:
-            sel = json.load(f).get("hybrid_selective", {})
-        th = {k: sel.get(k, th[k]) for k in th}
-    return c45, cnn, th
+            sys.exit(f"Thiếu {p}. Chạy main.py trước.")
+    th = load_thresholds(os.path.join(run_dir, "metrics.json"))
+    return joblib.load(c45_path), (_load_ensemble(MarkCNN, mark_path), _load_ensemble(StrayNet, stray_path)), th
+
+
+def _load_ensemble(cls, path):
+    models = []
+    for state in torch.load(path, map_location=DEVICE):
+        model = cls()
+        model.load_state_dict(state)
+        models.append(model.to(DEVICE if cls is MarkCNN else "cpu").eval())
+    if not models:
+        sys.exit(f"{path} không chứa mô hình nào")
+    return models
+
+
+def load_thresholds(path):
+    """Thiếu ngưỡng thì dừng: mặc định 0 sẽ tự động phân loại mọi phiếu."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            sel = json.load(f)["hybrid_selective_observed_test"]
+        return {k: sel[k] for k in ("tau_cnn", "tau_c45", "leaf_min_n", "tau_stray")}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"Không đọc được ngưỡng PENDING_REVIEW từ {path} ({e!r}). Chạy main.py trước.")
 
 
 def explain(label, marked, left_ink, extra_ink):
@@ -102,7 +121,7 @@ def explain(label, marked, left_ink, extra_ink):
         "Dấu nằm ngoài ô hoặc có ghi thêm (mô hình không xác định được vị trí cụ thể)."
 
 
-def annotate(img_gray, layout, p_marks, label, out_path):
+def annotate(img_gray, layout, p_marks, label, out_path, conflict=False):
     """Vẽ ô có dấu (xanh), ô trống (xám), vùng ngoài ô (cam) và kết luận (chữ không dấu vì cv2)."""
     vis = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
     for i, b in enumerate(layout["boxes"]):
@@ -114,8 +133,9 @@ def annotate(img_gray, layout, p_marks, label, out_path):
     for key in ("left_band", "extra_zone"):
         b = layout[key]
         cv2.rectangle(vis, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (0, 140, 255), 1)
-    ok = label == "valid"
-    cv2.putText(vis, ("HOP LE" if ok else "KHONG HOP LE") + f" [{label}]", (20, IMG_H - 20),
+    ok = label == "valid" and not conflict
+    text = "CAN XAC MINH" if conflict else "HOP LE" if ok else "KHONG HOP LE"
+    cv2.putText(vis, text + f" [{label}]", (20, IMG_H - 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 160, 0) if ok else (0, 0, 220), 3)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     cv2.imwrite(out_path, vis)
@@ -131,22 +151,28 @@ def predict_one(path, c45, cnn, th, layouts):
     binary = binarize_fullres(img)
     F = np.asarray([extract_features(binary, layout)], dtype=np.float32)
     C = crop_boxes(binary, layout["boxes"])[None]
-    p_marks = predict_marks(cnn, C)
+    mark_models, stray_models = cnn
+    p_marks = predict_marks_ensemble(mark_models, C)
+    p_stray = predict_ensemble(stray_models, maxpool_input(binary)[None])
     H = hybrid_features(F, p_marks)
     proba = c45.predict_proba(H)
     k = int(proba.argmax(1)[0])
     cc, cd = confidences(p_marks, proba)
     pend = bool(is_pending(cc, cd, th["tau_cnn"], th["tau_c45"],
-                           leaf_n=c45.leaf_size(H), leaf_min_n=th["leaf_min_n"])[0])
+                           leaf_n=c45.leaf_size(H), leaf_min_n=th["leaf_min_n"],
+                           extra=p_stray >= th["tau_stray"])[0])
     label = CFG["labels"][k]
     marked = [int(i) for i in np.where(p_marks[0] > 0.5)[0]]
+    conflict = label == "valid" and not 1 <= len(marked) <= 3     # C4.5 nói hợp lệ nhưng số ô có dấu trái quy tắc
+    pend = pend or conflict
     name = os.path.splitext(os.path.basename(path))[0]
     out_img = abspath(os.path.join(CFG["results_dir"], "annotated", name + "_ketqua.png"))
-    annotate(img, layout, p_marks[0], label, out_img)
+    annotate(img, layout, p_marks[0], label, out_img, conflict)
     return {"file": os.path.basename(path), "label": label,
-            "valid": "CÓ" if label == "valid" else "KHÔNG",
-            "error": ERROR_NAME[label],
-            "reason": explain(label, marked, float(F[0, 6]), float(F[0, 7])),
+            "valid": "CHƯA XÁC ĐỊNH" if conflict else "CÓ" if label == "valid" else "KHÔNG",
+            "error": "Cần người xác minh" if conflict else ERROR_NAME[label],
+            "reason": (f"Mâu thuẫn: dự đoán hợp lệ nhưng phát hiện {len(marked)} ô có dấu (quy định 1–3)."
+                       if conflict else explain(label, marked, float(F[0, 6]), float(F[0, 7]))),
             "confidence": round(float(proba[0, k]), 4),
             "status": "PENDING_REVIEW (nên để người xác minh)" if pend else "AUTO_CLASSIFIED",
             "marked_boxes": marked, "annotated": out_img}
@@ -193,6 +219,8 @@ def main():
         paths = sorted(os.path.join(a.input, f) for f in os.listdir(a.input) if f.lower().endswith(EXTS))
     else:
         paths = [a.input]
+    if not paths:
+        sys.exit(f"Không có ảnh {', '.join(EXTS)} trong {a.input}")
     results = [predict_one(p, c45, cnn, th, layouts) for p in paths]
     for r in results:
         show(r)
