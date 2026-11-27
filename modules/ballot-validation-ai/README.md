@@ -91,6 +91,8 @@ Toàn bộ thông tin cá nhân trên thẻ là **giả lập**.
 
 ## 5. Kết quả (tập test, 500 phiếu, seed 42, một lần chạy)
 
+> Số liệu dưới đây đo **trước** khi sửa lỗi tràn số `uint8` ở đặc trưng `edge_density`. Cần chạy lại `main.py` để cập nhật.
+
 | Mô hình | Accuracy | Macro-F1 | Recall "không hợp lệ" | Precision "không hợp lệ" |
 |---|---|---|---|---|
 | Baseline majority | 0.200 | 0.07 | 0.000 | 0.000 |
@@ -132,5 +134,5 @@ CNN phát hiện dấu trên từng ô đạt accuracy **0.9996** trên tập te
 - **Fabric và PBFT** (SmartBFT) chưa triển khai và chưa chạy thử.
 - **MLOps** chưa có DVC, MLflow, CI/CD, Docker Compose.
 - **Chưa có web demo**; chưa đo TPS và độ trễ.
-- **Bảo mật:** phân tích mối đe dọa (STRIDE) chưa viết.
+- **Bảo mật:** STRIDE mới phủ tầng sổ cái ([`docs/stride.md`](../../docs/stride.md)).
 - Lịch sử git cũ vẫn chứa `models/` và `results/` đã từng được commit.

@@ -72,13 +72,17 @@ def load_models():
     cnn = MarkCNN().to(DEVICE)
     cnn.load_state_dict(torch.load(cnn_path, map_location=DEVICE))
     cnn.eval()
-    th = {"tau_cnn": 0.0, "tau_c45": 0.0, "leaf_min_n": 0}
-    mpath = abspath(os.path.join(CFG["results_dir"], "metrics.json"))
-    if os.path.exists(mpath):
-        with open(mpath, encoding="utf-8") as f:
-            sel = json.load(f).get("hybrid_selective", {})
-        th = {k: sel.get(k, th[k]) for k in th}
-    return c45, cnn, th
+    return c45, cnn, load_thresholds(abspath(os.path.join(CFG["results_dir"], "metrics.json")))
+
+
+def load_thresholds(path):
+    """Thiếu ngưỡng thì dừng: mặc định 0 sẽ tự động phân loại mọi phiếu."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            sel = json.load(f)["hybrid_selective"]
+        return {k: sel[k] for k in ("tau_cnn", "tau_c45", "leaf_min_n")}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"Không đọc được ngưỡng PENDING_REVIEW từ {path} ({e!r}). Chạy main.py trước.")
 
 
 def explain(label, marked, left_ink, extra_ink):
@@ -102,7 +106,7 @@ def explain(label, marked, left_ink, extra_ink):
         "Dấu nằm ngoài ô hoặc có ghi thêm (mô hình không xác định được vị trí cụ thể)."
 
 
-def annotate(img_gray, layout, p_marks, label, out_path):
+def annotate(img_gray, layout, p_marks, label, out_path, conflict=False):
     """Vẽ ô có dấu (xanh), ô trống (xám), vùng ngoài ô (cam) và kết luận (chữ không dấu vì cv2)."""
     vis = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
     for i, b in enumerate(layout["boxes"]):
@@ -114,8 +118,9 @@ def annotate(img_gray, layout, p_marks, label, out_path):
     for key in ("left_band", "extra_zone"):
         b = layout[key]
         cv2.rectangle(vis, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), (0, 140, 255), 1)
-    ok = label == "valid"
-    cv2.putText(vis, ("HOP LE" if ok else "KHONG HOP LE") + f" [{label}]", (20, IMG_H - 20),
+    ok = label == "valid" and not conflict
+    text = "CAN XAC MINH" if conflict else "HOP LE" if ok else "KHONG HOP LE"
+    cv2.putText(vis, text + f" [{label}]", (20, IMG_H - 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 160, 0) if ok else (0, 0, 220), 3)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     cv2.imwrite(out_path, vis)
@@ -140,13 +145,16 @@ def predict_one(path, c45, cnn, th, layouts):
                            leaf_n=c45.leaf_size(H), leaf_min_n=th["leaf_min_n"])[0])
     label = CFG["labels"][k]
     marked = [int(i) for i in np.where(p_marks[0] > 0.5)[0]]
+    conflict = label == "valid" and not 1 <= len(marked) <= 3     # C4.5 nói hợp lệ nhưng số ô có dấu trái quy tắc
+    pend = pend or conflict
     name = os.path.splitext(os.path.basename(path))[0]
     out_img = abspath(os.path.join(CFG["results_dir"], "annotated", name + "_ketqua.png"))
-    annotate(img, layout, p_marks[0], label, out_img)
+    annotate(img, layout, p_marks[0], label, out_img, conflict)
     return {"file": os.path.basename(path), "label": label,
-            "valid": "CÓ" if label == "valid" else "KHÔNG",
-            "error": ERROR_NAME[label],
-            "reason": explain(label, marked, float(F[0, 6]), float(F[0, 7])),
+            "valid": "CHƯA XÁC ĐỊNH" if conflict else "CÓ" if label == "valid" else "KHÔNG",
+            "error": "Cần người xác minh" if conflict else ERROR_NAME[label],
+            "reason": (f"Mâu thuẫn: dự đoán hợp lệ nhưng phát hiện {len(marked)} ô có dấu (quy định 1–3)."
+                       if conflict else explain(label, marked, float(F[0, 6]), float(F[0, 7]))),
             "confidence": round(float(proba[0, k]), 4),
             "status": "PENDING_REVIEW (nên để người xác minh)" if pend else "AUTO_CLASSIFIED",
             "marked_boxes": marked, "annotated": out_img}
@@ -193,6 +201,8 @@ def main():
         paths = sorted(os.path.join(a.input, f) for f in os.listdir(a.input) if f.lower().endswith(EXTS))
     else:
         paths = [a.input]
+    if not paths:
+        sys.exit(f"Không có ảnh {', '.join(EXTS)} trong {a.input}")
     results = [predict_one(p, c45, cnn, th, layouts) for p in paths]
     for r in results:
         show(r)

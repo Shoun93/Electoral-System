@@ -6,6 +6,7 @@ Hai nhánh dùng hai độ phân giải khác nhau:
 Ảnh nhị phân: 1 = mực (chữ, dấu), 0 = nền.
 """
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -62,11 +63,41 @@ def generate_synthetic_ballots():
     gen.generate(out_root=MODULE_DIR)
 
 
-def build_processed(force=False):
+def dataset_key():
+    """SHA-256 của nhãn, ROI, ảnh gốc, cấu hình và mã tiền xử lý: đổi bất kỳ thứ nào thì cache hết hiệu lực."""
+    h = hashlib.sha256(json.dumps([CFG["labels"], CFG["preprocess"], CFG["features"]], sort_keys=True).encode())
+    labels_csv = abspath(CFG["data"]["labels_csv"])
+    with open(labels_csv, encoding="utf-8") as f:
+        raw = [os.path.join(abspath(CFG["data"]["raw_dir"]), r["file"]) for r in csv.DictReader(f)]
+    src = os.path.dirname(os.path.abspath(__file__))
+    code = [os.path.join(src, n) for n in ("preprocess.py", "feature_c45.py")]
+    for p in [labels_csv, abspath(CFG["data"]["boxes_json"]), *code, *raw]:
+        with open(p, "rb") as f:
+            h.update(hashlib.sha256(f.read()).digest())
+    return h.hexdigest()
+
+
+def mark_cache_key(data, model_path):
+    """Khóa cache xác suất CNN theo ô: dữ liệu, split, cấu hình, mã huấn luyện và checkpoint."""
+    h = hashlib.sha256(json.dumps([CFG["mark_cnn"], CFG["data"]["val_fraction"]], sort_keys=True).encode())
+    for name in ("C", "M", "y", "groups", "split", "files"):
+        a = np.ascontiguousarray(data[name])
+        h.update(f"{name}{a.dtype}{a.shape}".encode())
+        h.update(a.tobytes())
+    for p in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "train_cnn.py"), model_path):
+        with open(p, "rb") as f:
+            h.update(hashlib.sha256(f.read()).digest())
+    return h.hexdigest()
+
+
+def build_processed():
     """Đọc ảnh gốc → đặc trưng C4.5 (ở độ phân giải gốc) + ảnh CNN 224×224 → một file .npz."""
     out = abspath(CFG["data"]["processed_npz"])
-    if os.path.exists(out) and not force:
-        return out
+    key = dataset_key()
+    if os.path.exists(out):
+        with np.load(out, allow_pickle=False) as d:
+            if "source_key" in d.files and str(d["source_key"]) == key:
+                return out
     os.makedirs(os.path.dirname(out), exist_ok=True)
     labels = CFG["labels"]
     with open(abspath(CFG["data"]["labels_csv"]), encoding="utf-8") as f:
@@ -94,17 +125,14 @@ def build_processed(force=False):
                         C=np.stack(C), M=np.asarray(M, dtype=np.int64),
                         y=np.asarray(y), split=np.asarray(split), files=np.asarray(files),
                         groups=np.asarray(groups),
-                        feature_names=np.asarray(FEATURE_NAMES))
+                        feature_names=np.asarray(FEATURE_NAMES), source_key=np.asarray(key))
     print(f"✅ Tiền xử lý {len(rows)} phiếu → {out}")
     return out
 
 
 def load_dataset():
-    """Trả về dict: X, F, C, M, y, split, files, groups (đã tạo nếu chưa có hoặc thiếu groups)."""
-    path = build_processed()
-    if "groups" not in np.load(path, allow_pickle=False).files:   # file cũ, tạo lại
-        path = build_processed(force=True)
-    d = np.load(path, allow_pickle=False)
+    """Trả về dict: X, F, C, M, y, split, files, groups (tạo lại nếu nguồn đã đổi)."""
+    d = np.load(build_processed(), allow_pickle=False)
     return {k: d[k] for k in ["X", "F", "C", "M", "y", "split", "files", "groups"]}
 
 

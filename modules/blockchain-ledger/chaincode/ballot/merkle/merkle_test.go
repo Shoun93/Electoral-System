@@ -11,7 +11,7 @@ func leaf(s string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Vector này cũng được kiểm trong tests/test_merkle.py của pipeline Python.
+// Vector này cũng được kiểm trong tests/test_units.py của pipeline Python.
 func TestVector(t *testing.T) {
 	leaves := []string{leaf("a"), leaf("b"), leaf("c")}
 	got, err := Root(leaves)

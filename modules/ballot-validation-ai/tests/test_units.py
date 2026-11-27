@@ -142,10 +142,6 @@ class TestGroupSplit(unittest.TestCase):
             split_train_val(d, seed=42)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestDecision(unittest.TestCase):
     def test_screening_counts_pending_as_detected(self):
         from decision import screening_report
@@ -212,3 +208,65 @@ class TestLeafRule(unittest.TestCase):
         n = clf.leaf_size(X)
         self.assertTrue((n >= 5).all())
         self.assertLessEqual(n.max(), 200)
+
+
+class TestRegressions(unittest.TestCase):
+    def test_edge_density_no_uint8_overflow(self):
+        from feature_c45 import extract_features
+        b = np.zeros((20, 20), np.uint8)
+        b[:, :10] = 1                                        # một biên dọc: 20 chỗ chuyển 1→0
+        box = [0, 0, 20, 20]
+        F = extract_features(b, {"boxes": [box] * 5, "left_band": box, "extra_zone": box})
+        self.assertAlmostEqual(F[4], 20 / 400)
+
+    def test_chain_rejects_bad_index_difficulty_and_empty(self):
+        c = HashChain(difficulty=2)
+        c.add_ballot("x", "valid", 0.9)
+        c.blocks[1].index = 7
+        c.blocks[1].hash = c.blocks[1].mine()
+        self.assertEqual(c.validate(), (False, 1))
+        c = HashChain(difficulty=2)
+        b = c.add_ballot("x", "valid", 0.9)
+        b.difficulty = 0
+        self.assertEqual(c.validate(), (False, 1))
+        c.blocks = []
+        self.assertFalse(c.verify())
+
+    def test_monitor_handles_missing_key_and_empty_input(self):
+        from monitor import check_drift, log_run
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "log.json")
+            log_run({"old": 1.0}, p)
+            log_run({"acc": 0.9}, p)
+            self.assertFalse(check_drift(p, key="acc"))
+        with self.assertRaises(ValueError):
+            psi(np.arange(10), [])
+
+    def test_caches_invalidate_when_sources_change(self):
+        import json
+        from unittest import mock
+
+        import cv2
+        import preprocess
+        with tempfile.TemporaryDirectory() as d:
+            data = dict(preprocess.CFG["data"], raw_dir=d, labels_csv=os.path.join(d, "all.csv"),
+                        boxes_json=os.path.join(d, "boxes.json"), processed_npz=os.path.join(d, "d.npz"))
+            box = [10, 10, 40, 40]
+            with open(data["boxes_json"], "w") as f:
+                json.dump({"a.png": {"boxes": [box] * 5, "left_band": box, "extra_zone": box}}, f)
+            with open(data["labels_csv"], "w") as f:
+                f.write("file,label,split,group_id,o_co_danh_dau\na.png,blank,train,g0,\n")
+            img = os.path.join(d, "a.png")
+            cv2.imwrite(img, np.full((60, 60), 255, np.uint8))
+            with mock.patch.dict(preprocess.CFG, {"data": data}):
+                first = preprocess.load_dataset()
+                cv2.imwrite(img, np.eye(60, dtype=np.uint8) * 255)
+                second = preprocess.load_dataset()
+                self.assertFalse(np.array_equal(first["X"], second["X"]))
+                k = preprocess.mark_cache_key(second, img)
+                changed = dict(second, M=1 - second["M"])
+                self.assertNotEqual(k, preprocess.mark_cache_key(changed, img))
+
+
+if __name__ == "__main__":
+    unittest.main()

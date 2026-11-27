@@ -16,6 +16,8 @@ PSI_THRESHOLD = 0.25
 
 def psi(expected, actual, n_bins=10):
     expected, actual = np.asarray(expected, float), np.asarray(actual, float)
+    if not expected.size or not actual.size:
+        raise ValueError("PSI cần dữ liệu không rỗng")
     edges = np.unique(np.quantile(expected, np.linspace(0, 1, n_bins + 1)))  # bỏ biên trùng
     if len(edges) < 2:
         return 0.0                       # đặc trưng hằng số: không đo được lệch
@@ -49,10 +51,11 @@ def log_run(metrics, path):
 def check_drift(path, key="hybrid_acc", tol=0.05):
     with open(path, encoding="utf-8") as f:
         runs = json.load(f)
-    if len(runs) < 2:
+    past = [r[key] for r in runs[:-1] if key in r]   # lần chạy cũ có thể chưa ghi chỉ số này
+    if not past or key not in runs[-1]:
         print("Chưa đủ lịch sử để so sánh.")
         return False
-    last, past = runs[-1][key], [r[key] for r in runs[:-1]]
+    last = runs[-1][key]
     drop = float(np.median(past)) - last
     warn = drop > tol
     print(f"{key}: lần này={last:.4f}, trung vị trước đó={np.median(past):.4f} → "

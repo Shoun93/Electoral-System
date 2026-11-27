@@ -129,7 +129,7 @@ const S={screen:'splash',user:{name:'Nguyễn Văn A'},tab:'home',
   {id:'e1',code:'KND-7H2Q9X',name:'Bầu cử Đại diện Đoàn Thanh Niên HUTECH',type:'e',date:'15/11 – 20/11/2026',desc:'',cands:[['Nguyễn Văn A'],['Trần Thị B'],['Lê Văn C']],voted:false},
   {id:'e2',code:'KND-4M8R2T',name:'Bầu cử Ban cán sự lớp',type:'s',date:'10/11 – 18/11/2026',desc:'',cands:[],voted:false}],
  cur:null,pick:null,confirm:false,toast:'',nfcBusy:false,err:'',
- draft:{name:'',type:'e',from:'2026-11-17',to:'2026-11-22',desc:'',cands:[{n:'',d:''},{n:'',d:''}],imgs:['','','']},
+ draft:{name:'',type:'e',from:'2026-11-17',to:'2026-11-22',desc:'',cands:[{n:'',d:''},{n:'',d:''}],imgs:[]},
  newCode:'',q:''};
 const $=s=>document.querySelector(s);
 const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -213,7 +213,7 @@ document.addEventListener('click',e=>{
  if(!b){return}
  const d=b.dataset;
  if(d.act==='close'&&e.target.closest('.sheet')&&!b.classList.contains('btn')&&b.classList.contains('sheet-bg')){if(e.target!==b)return}
- if(d.go){if(d.go==='create'){S.draft={name:'',type:'e',from:'2026-11-17',to:'2026-11-22',desc:'',cands:[{n:'',d:''},{n:'',d:''}],imgs:['','','']}}go(d.go);return}
+ if(d.go){if(d.go==='create'){S.draft={name:'',type:'e',from:'2026-11-17',to:'2026-11-22',desc:'',cands:[{n:'',d:''},{n:'',d:''}],imgs:[]}}go(d.go);return}
  if(d.back){go(S.screen==='cevote'||S.screen==='cscan'?'create':d.back);return}
  if(d.tab){go(d.tab);return}
  if(d.join){open(d.join);return}
@@ -226,9 +226,9 @@ document.addEventListener('click',e=>{
   case'login':{const u=$('#u').value.trim(),p=$('#p').value;if(!u||!p){err('Vui lòng nhập email/số điện thoại và mật khẩu');return}go('home');break}
   case'register':{const n=$('#rn').value.trim(),ph=$('#rp').value.trim(),em=$('#re').value.trim(),a=$('#r1').value,c=$('#r2').value;
    if(!n||!ph||!em||!a){err('Vui lòng điền đầy đủ thông tin');return}if(a.length<6){err('Mật khẩu cần ít nhất 6 ký tự');return}if(a!==c){err('Mật khẩu xác nhận không khớp');return}S.user.name=n;go('nfc');break}
-  case'scan':S.nfcBusy=true;render();setTimeout(()=>{S.nfcBusy=false;go('home')},1800);break;
+  case'scan':S.nfcBusy=true;render();setTimeout(()=>{S.nfcBusy=false;if(S.screen==='nfc')go('home')},1800);break;
   case'joincode':{const c=$('#code').value.trim().toUpperCase();const el=S.elections.find(x=>x.code===c);if(!c){err('Vui lòng nhập mã cuộc bầu cử');return}if(!el){err('Không tìm thấy mã này. Kiểm tra lại và thử lần nữa.');return}open(el.id);break}
-  case'next':{const n=$('#cn').value.trim();S.draft.name=n;if(!n){err('Vui lòng nhập tên cuộc bầu cử');return}if(S.draft.to<S.draft.from){err('Ngày kết thúc phải sau ngày bắt đầu');return}go(S.draft.type==='e'?'cevote':'cscan');break}
+  case'next':{const n=$('#cn').value.trim();S.draft.name=n;if(!n){err('Vui lòng nhập tên cuộc bầu cử');return}if(!S.draft.from||!S.draft.to){err('Chọn ngày bắt đầu và ngày kết thúc');return}if(S.draft.to<S.draft.from){err('Ngày kết thúc phải sau ngày bắt đầu');return}go(S.draft.type==='e'?'cevote':'cscan');break}
   case'addc':saveCreate();S.draft.cands.push({n:'',d:''});render();break;
   case'finish':{const D=S.draft;let cands=[];
    if(D.type==='e'){cands=D.cands.filter(c=>c.n.trim()).map(c=>[c.n.trim(),c.d.trim()]);if(cands.length<2){err('Nhập tên cho ít nhất 2 ứng cử viên');return}}

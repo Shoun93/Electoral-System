@@ -63,14 +63,15 @@ class HashChain:
 
     def validate(self):
         """Trả về (True, None) nếu hợp lệ; (False, chỉ số block lỗi) nếu có sửa đổi/đứt liên kết."""
-        if self.blocks[0].compute_hash() != self.blocks[0].hash:
+        # ponytail: không phát hiện được cắt đuôi chuỗi hay đào lại toàn bộ; cần neo hash cuối ra ngoài (Fabric).
+        if not self.blocks:
             return False, 0
-        for i in range(1, len(self.blocks)):
-            b, prev = self.blocks[i], self.blocks[i - 1]
-            if b.compute_hash() != b.hash:
+        prev_hash = "0"
+        for i, b in enumerate(self.blocks):
+            if (b.index != i or b.prev_hash != prev_hash or b.difficulty != self.difficulty
+                    or not b.hash.startswith("0" * self.difficulty) or b.compute_hash() != b.hash):
                 return False, i
-            if b.prev_hash != prev.hash:
-                return False, i
+            prev_hash = b.hash
         return True, None
 
     def verify(self):

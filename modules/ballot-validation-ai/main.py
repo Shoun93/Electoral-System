@@ -22,7 +22,7 @@ import numpy as np
 import torch
 
 from config import CFG, abspath
-from preprocess import generate_synthetic_ballots, load_dataset, split_train_val
+from preprocess import generate_synthetic_ballots, load_dataset, mark_cache_key, split_train_val
 from baselines import train_baselines
 from c45 import C45Classifier
 from feature_c45 import FEATURE_NAMES
@@ -82,21 +82,26 @@ def main():
     print("\n----- CNN phát hiện dấu theo ô (out-of-fold) + C4.5 -----")
     # Cache xác suất CNN theo ô (chỉ phụ thuộc dữ liệu + config, không phụ thuộc lưới C4.5)
     cache = os.path.join(results_dir, "mark_probs_cache.npz")
-    mark_model_path = abspath("models/mark_cnn.pt")
-    # Cache chỉ dùng được khi cùng danh sách file VÀ đã có mark_cnn.pt (predict.py cần file này)
-    if os.path.exists(cache) and os.path.exists(mark_model_path) and np.array_equal(np.load(cache)["files"], files):
-        c_ = np.load(cache)
+    mark_model_path = abspath(os.path.join(CFG["models_dir"], "mark_cnn.pt"))
+    # Cache chỉ dùng được khi khóa (dữ liệu, cấu hình, mã, mark_cnn.pt) khớp
+    c_ = None
+    if os.path.exists(cache) and os.path.exists(mark_model_path):
+        with np.load(cache) as z:
+            if "key" in z.files and str(z["key"]) == mark_cache_key(data, mark_model_path):
+                c_ = {k: z[k] for k in ("tr", "va", "te")}
+    if c_ is not None:
         p_marks_tr, p_marks_va, p_marks_te = c_["tr"], c_["va"], c_["te"]
         print("[cache] nạp xác suất CNN theo ô từ", cache)
     else:
-        p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr])   # out-of-fold cho train, chia theo group
+        p_marks_tr = oof_mark_probs(C[tr], M[tr], groups=G[tr], strat=y[tr],
+                                   k=CFG["mark_cnn"]["folds"])                  # out-of-fold cho train, chia theo group
         mark_model = train_mark_cnn(C[tr], M[tr])
         os.makedirs(os.path.dirname(mark_model_path), exist_ok=True)
         torch.save(mark_model.state_dict(), mark_model_path)                   # để predict.py dùng
         print("✅ Đã lưu CNN theo ô →", mark_model_path)
         p_marks_va = predict_marks(mark_model, C[va])
         p_marks_te = predict_marks(mark_model, C[te])
-        np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, files=files)
+        np.savez(cache, tr=p_marks_tr, va=p_marks_va, te=p_marks_te, key=mark_cache_key(data, mark_model_path))
     mark_acc_te = float(((p_marks_te > 0.5).astype(int) == M[te]).mean())
     print(f"CNN phát hiện dấu trên ô (test, từng ô): accuracy={mark_acc_te:.4f}")
     metrics["mark_cnn_box_accuracy"] = round(mark_acc_te, 4)
@@ -153,7 +158,8 @@ def main():
     leaves = [merkle.leaf_hash(files[i], pred_label[k], p_h[k].max(),
                                sha256_file(os.path.join(raw_dir, files[i])))
               for k, i in enumerate(te)]
-    batch = {"batch_id": "test-" + str(len(te)), "root": merkle.root(leaves), "count": len(leaves), "leaves": leaves}
+    root = merkle.root(leaves)   # batch_id kèm gốc: chaincode ghi một lần, hai lô khác nhau không được trùng khóa
+    batch = {"batch_id": f"test-{len(te)}-{root[:16]}", "root": root, "count": len(leaves), "leaves": leaves}
     with open(os.path.join(results_dir, "fabric_batch.json"), "w", encoding="utf-8") as f:
         json.dump(batch, f, ensure_ascii=False, indent=1)
 
